@@ -1,0 +1,275 @@
+"""Vendor dependency packing logic.
+
+Supports two methods:
+  1. Copy from local site-packages (fastest).
+  2. pip download + extract (works without pre-installed deps).
+"""
+
+import os
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import zipfile
+from pathlib import Path
+from typing import Callable, Optional
+
+# ---------------------------------------------------------------------------
+# DGHub base dependencies — plugin authors should NOT vendor these
+# ---------------------------------------------------------------------------
+DGHUB_BASE_DEPS: frozenset = frozenset({
+    "websockets",
+    "websockets-legacy",
+})
+
+
+def is_dghub_base_dep(package_name: str) -> bool:
+    """Return True if the package is provided by DGHub runtime."""
+    return package_name.strip().lower() in DGHUB_BASE_DEPS
+
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+
+def _normalise_name(name: str) -> str:
+    """Normalise a package name (PEP 503)."""
+    return name.strip().lower().replace("_", "-")
+
+
+def _find_site_packages(package_name: str) -> Optional[Path]:
+    """Find the path of an installed package in site-packages."""
+    # try importing it
+    try:
+        import importlib
+        mod = importlib.import_module(package_name)
+        mod_path = Path(getattr(mod, "__file__", "") or "")
+        if mod_path.name == "__init__.py":
+            return mod_path.parent
+        return mod_path.parent
+    except ImportError:
+        pass
+
+    # fallback: walk sys.path
+    norm = _normalise_name(package_name)
+    norm_underscore = norm.replace("-", "_")
+    for sp in sys.path:
+        sp_path = Path(sp)
+        # package as directory
+        cand = sp_path / norm_underscore
+        if cand.is_dir() and (cand / "__init__.py").exists():
+            return cand
+        # single-file module
+        cand_file = sp_path / f"{norm_underscore}.py"
+        if cand_file.exists():
+            return cand_file
+    return None
+
+
+# ---------------------------------------------------------------------------
+# packing methods
+# ---------------------------------------------------------------------------
+
+
+def copy_from_site_packages(
+    package_name: str,
+    vendor_dir: Path,
+    progress_callback: Optional[Callable[[str], None]] = None,
+) -> bool:
+    """Copy an installed package from site-packages into vendor/.
+
+    Returns True on success.
+    """
+    src = _find_site_packages(package_name)
+    if src is None:
+        if progress_callback:
+            progress_callback(f"[失败] 未找到已安装的 '{package_name}'，请先 pip install")
+        return False
+
+    dst = vendor_dir / src.name
+    if dst.exists():
+        shutil.rmtree(dst)
+
+    try:
+        if src.is_dir():
+            shutil.copytree(src, dst, ignore=shutil.ignored_patterns("__pycache__", "*.pyc"))
+        else:
+            shutil.copy2(src, dst)
+        if progress_callback:
+            progress_callback(f"[成功] 已复制 '{package_name}' → {dst}")
+        return True
+    except Exception as exc:
+        if progress_callback:
+            progress_callback(f"[错误] 复制 '{package_name}' 失败: {exc}")
+        return False
+
+
+def pip_download_package(
+    package_name: str,
+    vendor_dir: Path,
+    progress_callback: Optional[Callable[[str], None]] = None,
+) -> bool:
+    """Download a package via pip and extract source into vendor/.
+
+    Returns True on success.
+    """
+    norm = _normalise_name(package_name)
+    with tempfile.TemporaryDirectory(prefix="dghub_packer_") as tmp:
+        tmp_path = Path(tmp)
+        # pip download
+        cmd = [
+            sys.executable, "-m", "pip", "download",
+            "--no-deps",
+            "--only-binary", ":all:",
+            "-d", str(tmp_path),
+            norm,
+        ]
+        if progress_callback:
+            progress_callback(f"[运行] pip download {norm} ...")
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True, text=True, timeout=120,
+            )
+        except subprocess.TimeoutExpired:
+            if progress_callback:
+                progress_callback(f"[错误] 下载 '{norm}' 超时")
+            return False
+
+        if result.returncode != 0:
+            # fallback: try source distribution
+            if progress_callback:
+                progress_callback(f"[重试] binary 失败，尝试 source 分发 ...")
+            cmd_src = [
+                sys.executable, "-m", "pip", "download",
+                "--no-deps",
+                "--no-binary", ":all:",
+                "-d", str(tmp_path),
+                norm,
+            ]
+            try:
+                result = subprocess.run(
+                    cmd_src, capture_output=True, text=True, timeout=120,
+                )
+            except subprocess.TimeoutExpired:
+                if progress_callback:
+                    progress_callback(f"[错误] 下载 '{norm}' 超时")
+                return False
+
+            if result.returncode != 0:
+                err = result.stderr.strip() or "未知错误"
+                if progress_callback:
+                    progress_callback(f"[失败] pip download '{norm}' 出错: {err}")
+                return False
+
+        # find downloaded file
+        files = list(tmp_path.iterdir())
+        if not files:
+            if progress_callback:
+                progress_callback(f"[失败] 未找到下载文件 '{norm}'")
+            return False
+
+        downloaded = files[0]
+        pkg_dir = vendor_dir / norm.replace("-", "_")
+
+        if downloaded.suffix == ".whl":
+            # extract wheel
+            with zipfile.ZipFile(downloaded, "r") as zf:
+                # find the pure package dir inside the wheel
+                top_level = {p.split("/", 1)[0] for p in zf.namelist() if "/" in p}
+                zf.extractall(str(tmp_path))
+            # move
+            src_candidates = []
+            for tl in top_level:
+                src_path = tmp_path / tl
+                if src_path.is_dir() and (src_path / "__init__.py").exists():
+                    src_candidates.append(src_path)
+            if not src_candidates:
+                # try to find any dir that looks like the package
+                for item in tmp_path.iterdir():
+                    if item.is_dir() and item.name != "__pycache__":
+                        src_candidates.append(item)
+            if src_candidates:
+                src = src_candidates[0]
+                if pkg_dir.exists():
+                    shutil.rmtree(pkg_dir)
+                shutil.copytree(src, pkg_dir,
+                                ignore=shutil.ignored_patterns("__pycache__", "*.pyc"))
+                if progress_callback:
+                    progress_callback(f"[成功] 已下载并解压 '{norm}' → {pkg_dir}")
+                return True
+            else:
+                if progress_callback:
+                    progress_callback(f"[失败] 无法在 wheel 中找到包目录 '{norm}'")
+                return False
+
+        elif downloaded.suffix == ".tar.gz":
+            # extract source tarball
+            with tarfile.open(downloaded, "r:gz") as tf:
+                tf.extractall(str(tmp_path))
+            # find the package dir inside
+            extracted_dirs = [d for d in tmp_path.iterdir() if d.is_dir()]
+            if not extracted_dirs:
+                if progress_callback:
+                    progress_callback(f"[失败] 解压后未找到目录 '{norm}'")
+                return False
+            sub_pkg = extracted_dirs[0] / norm.replace("-", "_")
+            if sub_pkg.exists() and sub_pkg.is_dir():
+                if pkg_dir.exists():
+                    shutil.rmtree(pkg_dir)
+                shutil.copytree(sub_pkg, pkg_dir,
+                                ignore=shutil.ignored_patterns("__pycache__", "*.pyc"))
+                if progress_callback:
+                    progress_callback(f"[成功] 已下载并解压 '{norm}' → {pkg_dir}")
+                return True
+            if progress_callback:
+                progress_callback(f"[失败] 解压后未找到包目录 '{norm}'")
+            return False
+        else:
+            if progress_callback:
+                progress_callback(f"[失败] 不识别的包格式: {downloaded.suffix}")
+            return False
+
+
+def pack_dependencies(
+    package_names: list[str],
+    vendor_dir: Path,
+    method: str = "auto",
+    progress_callback: Optional[Callable[[str], None]] = None,
+) -> dict[str, bool]:
+    """Pack a list of packages into vendor/.
+
+    Args:
+        package_names: List of package names.
+        vendor_dir: Target vendor/ directory (will be created).
+        method: "site-packages" | "pip" | "auto" (try site-packages first).
+        progress_callback: Optional callable for log lines.
+
+    Returns:
+        Dict mapping package name -> success (bool).
+    """
+    vendor_dir.mkdir(parents=True, exist_ok=True)
+    results: dict[str, bool] = {}
+
+    for name in package_names:
+        name = name.strip()
+        if not name:
+            continue
+
+        if is_dghub_base_dep(name):
+            if progress_callback:
+                progress_callback(f"[跳过] '{name}' 是 DGHub 基础依赖，无需 vendor")
+            results[name] = True
+            continue
+
+        ok = False
+        if method in ("auto", "site-packages"):
+            ok = copy_from_site_packages(name, vendor_dir, progress_callback)
+        if not ok and method in ("auto", "pip"):
+            ok = pip_download_package(name, vendor_dir, progress_callback)
+        results[name] = ok
+
+    return results
