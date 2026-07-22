@@ -46,7 +46,7 @@ class App(ctk.CTk):
         # -- tabs --
         self._manifest_tab = self._tab_view.add("Manifest 编辑")
         self._dep_tab = self._tab_view.add("依赖打包")
-        self._export_tab = self._tab_view.add("Zip 导出")
+        self._export_tab = self._tab_view.add("导出")
         self._settings_tab = self._tab_view.add("设置")
 
         # -- populate tabs --

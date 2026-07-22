@@ -41,7 +41,7 @@ class DependencyTab(ctk.CTkFrame):
         ctk.CTkLabel(lang_row, text="项目语言:",
                      font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
         self._lang_var = ctk.StringVar(value="Python")
-        self._lang_menu = ctk.CTkOptionMenu(
+        self._lang_menu = ctk.CTkComboBox(
             lang_row, values=["Python", "其他"],
             variable=self._lang_var, command=self._on_lang_change, width=120,
         )

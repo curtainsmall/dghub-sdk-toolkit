@@ -496,7 +496,7 @@ class ManifestTab(ctk.CTkFrame):
                 err.grid_remove()
                 error_labels[key] = err
             elif widget_type == "combo":
-                cb = ctk.CTkOptionMenu(frame, values=options or [], width=250)
+                cb = ctk.CTkComboBox(frame, values=options or [], width=250)
                 cb.grid(row=0, column=1, padx=(5, 0), sticky="e")
                 if existing and key in existing:
                     cb.set(str(existing[key]))
@@ -564,14 +564,14 @@ class ManifestTab(ctk.CTkFrame):
                 existing_default = existing["default"]
         
             if new_type == "bool":
-                widget = ctk.CTkOptionMenu(frame, values=["true", "false"], width=250)
+                widget = ctk.CTkComboBox(frame, values=["true", "false"], width=250)
                 widget.grid(row=0, column=1, padx=(5, 0), sticky="e")
                 if existing_default is not None and isinstance(existing_default, bool):
                     widget.set("true" if existing_default else "false")
                 else:
                     widget.set("false")
             elif new_type == "channel":
-                widget = ctk.CTkOptionMenu(frame, values=["A", "B", "Both"], width=250)
+                widget = ctk.CTkComboBox(frame, values=["A", "B", "Both"], width=250)
                 widget.grid(row=0, column=1, padx=(5, 0), sticky="e")
                 if existing_default is not None and existing_default in ("a", "b", "both"):
                     widget.set(existing_default.upper())
@@ -579,7 +579,7 @@ class ManifestTab(ctk.CTkFrame):
                     widget.set("A")
             elif new_type == "select":
                 opts = _options_list[:] if _options_list else ["(No Option)"]
-                widget = ctk.CTkOptionMenu(frame, values=opts, width=250)
+                widget = ctk.CTkComboBox(frame, values=opts, width=250)
                 widget.grid(row=0, column=1, padx=(5, 0), sticky="e")
                 if existing_default is not None and existing_default in opts:
                     widget.set(existing_default)
@@ -725,7 +725,7 @@ class ManifestTab(ctk.CTkFrame):
                 _options_list[idx] = result_opt
                 # If default was set to the old value, update it
                 default_w = entries["default"]
-                if isinstance(default_w, ctk.CTkOptionMenu) and default_w.get() == old_val:
+                if isinstance(default_w, (ctk.CTkComboBox, ctk.CTkOptionMenu)) and default_w.get() == old_val:
                     default_w.set(result_opt)
                 _refresh_options_display()
                 _rebuild_default_widget("select")
@@ -845,7 +845,7 @@ class ManifestTab(ctk.CTkFrame):
 
         # Bind type change — CustomTkinter OptionMenu supports command
         type_widget = entries["type"]
-        if isinstance(type_widget, ctk.CTkOptionMenu):
+        if isinstance(type_widget, (ctk.CTkComboBox, ctk.CTkOptionMenu)):
             type_widget.configure(command=on_type_change)
             # Trigger initial show
             current_type = type_widget.get()
@@ -863,7 +863,7 @@ class ManifestTab(ctk.CTkFrame):
             }
             # Read and coerce "default"
             default_w = entries["default"]
-            if isinstance(default_w, ctk.CTkOptionMenu):
+            if isinstance(default_w, (ctk.CTkComboBox, ctk.CTkOptionMenu)):
                 raw = default_w.get()
                 if raw not in ("(No Option)", ""):
                     if ftype == "bool":

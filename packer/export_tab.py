@@ -1,4 +1,4 @@
-"""Zip export tab."""
+"""Export tab — package plugin directory into distributable archives."""
 
 import os
 import threading
@@ -11,7 +11,7 @@ import customtkinter as ctk
 
 
 class ExportTab(ctk.CTkFrame):
-    """Tab for exporting a plugin directory as a zip archive."""
+    """Tab for exporting a plugin directory into an archive (Zip, etc.)."""
 
     def __init__(self, master: Any, **kwargs: Any) -> None:
         super().__init__(master, **kwargs)
@@ -21,7 +21,7 @@ class ExportTab(ctk.CTkFrame):
 
     def _build_ui(self) -> None:
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=1)
 
         # -- output path --
         out_frame = ctk.CTkFrame(self)
@@ -36,9 +36,20 @@ class ExportTab(ctk.CTkFrame):
         ctk.CTkButton(out_frame, text="另存为...", width=80,
                       command=self._select_output).grid(row=0, column=2, padx=5, pady=10)
 
+        # -- format --
+        fmt_frame = ctk.CTkFrame(self)
+        fmt_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(5, 10))
+        fmt_frame.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(fmt_frame, text="导出格式:").grid(row=0, column=0, padx=5, pady=10)
+        self._format_var = ctk.StringVar(value="Zip")
+        self._format_menu = ctk.CTkComboBox(fmt_frame, variable=self._format_var,
+                                              values=["Zip"], width=120)
+        self._format_menu.grid(row=0, column=1, sticky="w", padx=5, pady=10)
+
         # -- progress / log --
         log_frame = ctk.CTkFrame(self)
-        log_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
+        log_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
         log_frame.grid_rowconfigure(1, weight=1)
         log_frame.grid_columnconfigure(0, weight=1)
 
@@ -46,7 +57,7 @@ class ExportTab(ctk.CTkFrame):
         btn_frame.grid(row=0, column=0, sticky="ew", pady=(5, 0))
         ctk.CTkLabel(btn_frame, text="导出日志",
                      font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
-        self._export_btn = ctk.CTkButton(btn_frame, text="导出 Zip",
+        self._export_btn = ctk.CTkButton(btn_frame, text="导出",
                                          command=self._start_export, width=100)
         self._export_btn.pack(side="right", padx=5)
 
@@ -138,6 +149,6 @@ class ExportTab(ctk.CTkFrame):
                 self._log_line(f"\n[错误] 导出失败: {exc}")
             finally:
                 self._running = False
-                self._export_btn.configure(text="导出 Zip", state="normal")
+                self._export_btn.configure(text="导出", state="normal")
 
         threading.Thread(target=task, daemon=True).start()

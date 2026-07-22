@@ -72,7 +72,7 @@ class SettingsTab(ctk.CTkFrame):
 
         ctk.CTkLabel(theme_frame, text="外观模式:").grid(
             row=1, column=0, sticky="w", padx=(10, 5), pady=10)
-        theme_menu = ctk.CTkOptionMenu(
+        theme_menu = ctk.CTkComboBox(
             theme_frame, values=["system", "light", "dark"],
             command=ctk.set_appearance_mode)
         theme_menu.grid(row=1, column=1, sticky="w", padx=5, pady=10)
