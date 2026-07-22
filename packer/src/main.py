@@ -27,7 +27,7 @@ def main() -> None:
         import ctypes
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
 
-    from packer.app import App
+    from packer.src.app import App
     app = App()
     app.mainloop()
 

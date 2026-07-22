@@ -32,10 +32,10 @@
 pip install -r requirements.txt
 
 # 运行
-python -m packer.main
+python -m packer.src.main
 
 # 打包为单文件 exe
-python build_exe.py
+python packer/build_exe.py
 # 产物: bin/DGHubPluginPacker.exe
 ```
 

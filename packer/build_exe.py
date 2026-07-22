@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent
 
 def _write_version() -> None:
     """Write packer/_version.py from git tag, or leave empty."""
-    version_path = ROOT / "packer" / "_version.py"
+    version_path = ROOT / "src" / "_version.py"
     try:
         tag = subprocess.check_output(
             ["git", "describe", "--tags", "--abbrev=0"],
@@ -45,7 +45,7 @@ def main() -> int:
         "--distpath", str(ROOT / "bin"),
         "--workpath", str(ROOT / "cache" / "build_tmp"),
         "--specpath", str(ROOT / "cache"),
-        str(ROOT / "packer" / "main.py"),
+        str(ROOT / "src" / "main.py"),
     ]
 
     result = subprocess.run(cmd, cwd=ROOT)

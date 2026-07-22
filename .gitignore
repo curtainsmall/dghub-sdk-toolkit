@@ -10,12 +10,8 @@
 !.github/
 !.github/**
 
-!build_exe.py
-!requirements.txt
-
 !demo/
 !demo/**
-
 
 # Re-ignore Python cache and build artifacts
 __pycache__/
