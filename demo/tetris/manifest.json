@@ -1,0 +1,12 @@
+{
+  "id": "tetris",
+  "name": "俄罗斯方块",
+  "version": "0.1.0",
+  "author": "curtainsmall",
+  "description": "俄罗斯方块游戏",
+  "entry": "main.py",
+  "sdk": "1",
+  "capabilities": {
+    "startup_check": true
+  }
+}

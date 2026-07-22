@@ -107,7 +107,7 @@ class ExportTab(ctk.CTkFrame):
         if not self._plugin_dir:
             default_name = "plugin.zip"
         else:
-            default_name = os.path.basename(self._plugin_dir) + ".zip"
+            default_name = Path(self._plugin_dir).name + ".zip"
 
         f = filedialog.asksaveasfilename(
             title="保存为",
@@ -138,12 +138,11 @@ class ExportTab(ctk.CTkFrame):
         # collect top-level entries, separate dirs and files
         dirs: list[str] = []
         files: list[str] = []
-        with os.scandir(plugin_path) as it:
-            for entry in it:
-                if entry.is_dir():
-                    dirs.append(entry.name)
-                else:
-                    files.append(entry.name)
+        for entry in plugin_path.iterdir():
+            if entry.is_dir():
+                dirs.append(entry.name)
+            else:
+                files.append(entry.name)
         dirs.sort()
         files.sort()
 
@@ -187,18 +186,24 @@ class ExportTab(ctk.CTkFrame):
         if self._running:
             return
         if not self._plugin_dir:
-            messagebox.showwarning("警告", "请先选择插件目录")
+            if hasattr(self, '_dir_label'):
+                self._dir_label.configure(text="请先选择插件目录", text_color="red")
+            if hasattr(self, '_dir_path_frame'):
+                self._dir_path_frame.configure(border_width=2, border_color="red")
             return
 
         plugin_path = Path(self._plugin_dir)
         if not plugin_path.is_dir():
-            messagebox.showerror("错误", "插件目录不存在")
+            if hasattr(self, '_dir_label'):
+                self._dir_label.configure(text="插件目录不存在", text_color="red")
+            if hasattr(self, '_dir_path_frame'):
+                self._dir_path_frame.configure(border_width=2, border_color="red")
             return
 
         # collect checked entries
         checked_set = {rel for rel, var in self._file_vars.items() if var.get()}
         if not checked_set:
-            messagebox.showwarning("警告", "请至少勾选一个文件或目录")
+            self._log_line("[错误] 请至少勾选一个文件或目录")
             return
 
         checked_dirs = {name for name in checked_set
@@ -224,21 +229,21 @@ class ExportTab(ctk.CTkFrame):
             try:
                 total_files = 0
                 with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                    for root, _dirs, files in os.walk(plugin_path):
-                        rel_root = os.path.relpath(root, plugin_path)
-                        if rel_root == ".":
-                            rel_root = ""
+                    for root_str, _dirs, files in os.walk(plugin_path):
+                        rel = Path(root_str).relative_to(plugin_path)
+                        rel_str = "" if rel == Path(".") else rel.as_posix()
                         for fname in files:
-                            arcname = os.path.join(rel_root, fname)
+                            arcname_str = (rel / fname).as_posix()
+                            src = Path(root_str) / fname
                             # direct file match
-                            if arcname in checked_files:
-                                zf.write(os.path.join(root, fname), arcname)
+                            if arcname_str in checked_files:
+                                zf.write(src, arcname_str)
                                 total_files += 1
                                 continue
                             # inside a checked directory
                             for d in checked_dirs:
-                                if rel_root == d or rel_root.startswith(d + "/"):
-                                    zf.write(os.path.join(root, fname), arcname)
+                                if rel_str == d or rel_str.startswith(d + "/"):
+                                    zf.write(src, arcname_str)
                                     total_files += 1
                                     break
 

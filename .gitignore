@@ -12,6 +12,8 @@
 
 !demo/
 !demo/**
+demo/**/vendor
+demo/**/*.zip
 
 # Re-ignore Python cache and build artifacts
 __pycache__/

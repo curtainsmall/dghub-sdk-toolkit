@@ -2,6 +2,7 @@
 
 import json
 import time
+from pathlib import Path
 from tkinter import messagebox
 from typing import Any, Optional
 
@@ -35,6 +36,7 @@ class ManifestTab(ctk.CTkFrame):
         self._selected_field: int = 0
         self._plugin_dir: Optional[str] = None
         self._controls: list[ctk.CTkBaseClass] = []
+        self._field_errors: dict[str, str] = {}
 
         self._build_ui()
         self._set_enabled(False)
@@ -117,13 +119,13 @@ class ManifestTab(ctk.CTkFrame):
         bottom.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
         bottom.grid_columnconfigure(0, weight=1)
 
-        self._error_label = ctk.CTkLabel(bottom, text="", text_color="red")
-        self._error_label.pack(side="left", padx=5)
-
         self._save_btn = ctk.CTkButton(bottom, text="保存 manifest.json",
                       command=self._save_manifest, width=150)
         self._save_btn.pack(side="right", padx=5)
         self._controls.append(self._save_btn)
+
+        self._error_label = ctk.CTkLabel(bottom, text="", text_color="red")
+        self._error_label.pack(side="right", padx=5)
 
     # ------------------------------------------------------------------
     # basic info
@@ -152,9 +154,28 @@ class ManifestTab(ctk.CTkFrame):
             ctk.CTkLabel(row, text=label, anchor="w").grid(row=0, column=0, sticky="w")
             widget: Any = ctk.CTkEntry(row, placeholder_text=placeholder)
             widget.grid(row=0, column=1, sticky="ew", padx=(5, 0))
-            widget.bind("<KeyRelease>", lambda e: self._refresh_preview())
+            widget.bind("<KeyRelease>",
+                        lambda e, k=key: self._on_field_keyrelease(k))
+            widget.bind("<FocusIn>",
+                        lambda e, k=key: self._on_field_focusin(k))
             self._fields[key] = widget
             self._controls.append(widget)
+
+    def _on_field_keyrelease(self, key: str) -> None:
+        widget = self._fields.get(key)
+        if isinstance(widget, ctk.CTkEntry):
+            widget.configure(border_width=0)
+        self._refresh_preview()
+
+    def _on_field_focusin(self, key: str) -> None:
+        """Clear error text when the user focuses on a field."""
+        widget = self._fields.get(key)
+        if not isinstance(widget, ctk.CTkEntry):
+            return
+        if key in self._field_errors:
+            del self._field_errors[key]
+            widget.delete(0, "end")
+            widget.configure(text_color=("gray10", "gray90"))
 
     # ------------------------------------------------------------------
     # capabilities
@@ -220,6 +241,12 @@ class ManifestTab(ctk.CTkFrame):
         self._field_container.grid(row=1, column=0, sticky="nsew", padx=2, pady=5)
         self._field_container.grid_columnconfigure(0, weight=1)
 
+        self._field_error_label = ctk.CTkLabel(
+            self._field_container, text="",
+            text_color="red", anchor="center",
+            font=ctk.CTkFont(size=12))
+        self._field_error_label.grid(row=0, column=0)
+
         fld_btn_frame = ctk.CTkFrame(sec_right, fg_color="transparent")
         fld_btn_frame.grid(row=2, column=0, pady=5)
         ctk.CTkButton(fld_btn_frame, text="+ 添加字段", width=90,
@@ -237,10 +264,14 @@ class ManifestTab(ctk.CTkFrame):
 
     def _add_section(self) -> None:
         dialog = ctk.CTkInputDialog(text="输入分组名称 (section):", title="添加分组")
+        dialog.withdraw()
+        self._center_dlg(dialog, self.winfo_toplevel())
+        dialog.deiconify()
         name = dialog.get_input()
         if name and name.strip():
             self._sections.append({"section": name.strip(), "fields": []})
             self._selected_section = len(self._sections) - 1  # auto-select new
+            self._section_container.configure(border_width=0)
             self._refresh_section_list()
             self._refresh_fields_display()
             self._refresh_preview()
@@ -262,6 +293,7 @@ class ManifestTab(ctk.CTkFrame):
         if 0 <= idx < len(self._sections):
             self._selected_section = idx
             self._selected_field = 0
+            self._section_container.configure(border_width=0)
             self._refresh_section_list()
             self._refresh_fields_display()
     
@@ -334,7 +366,7 @@ class ManifestTab(ctk.CTkFrame):
                 hover_color="#1F5380",
                 command=lambda idx=i: self._on_section_click(idx),
             )
-            btn.grid(row=i, column=0, sticky="ew", padx=2, pady=1)
+            btn.grid(row=i + 1, column=0, sticky="ew", padx=2, pady=1)
             self._section_buttons.append(btn)
     
     def _refresh_fields_display(self) -> None:
@@ -342,6 +374,7 @@ class ManifestTab(ctk.CTkFrame):
         for btn in self._field_buttons:
             btn.destroy()
         self._field_buttons.clear()
+        self._field_error_label.configure(text="")
     
         sec = self._get_current_section()
         if sec is None:
@@ -360,7 +393,7 @@ class ManifestTab(ctk.CTkFrame):
                 hover_color="#1F5380",
                 command=lambda idx=j: self._on_field_click(idx),
             )
-            btn.grid(row=j, column=0, sticky="ew", padx=2, pady=1)
+            btn.grid(row=j + 1, column=0, sticky="ew", padx=2, pady=1)
             self._field_buttons.append(btn)
 
     # ------------------------------------------------------------------
@@ -376,7 +409,8 @@ class ManifestTab(ctk.CTkFrame):
     def _add_field(self) -> None:
         sec = self._get_current_section()
         if sec is None:
-            messagebox.showinfo("提示", "请先选择一个配置分组")
+            self._field_error_label.configure(text="请先选择一个配置分组")
+            self._error_label.configure(text="", text_color="red")
             return
         field = self._field_dialog()
         if field:
@@ -411,6 +445,23 @@ class ManifestTab(ctk.CTkFrame):
         "path":       ["default", "description"],
     }
 
+    def _center_dlg(self, child: ctk.CTkToplevel, parent_win: Any) -> None:
+        """Center child dialog on parent window, clamped within parent bounds."""
+        child.update_idletasks()
+        pw = parent_win.winfo_width()
+        ph = parent_win.winfo_height()
+        px = parent_win.winfo_x()
+        py = parent_win.winfo_y()
+        cw = child.winfo_reqwidth()
+        ch = child.winfo_reqheight()
+        if pw > 0 and ph > 0:
+            x = px + (pw - cw) // 2
+            y = py + (ph - ch) // 2
+            # clamp so the dialog stays within parent bounds
+            x = max(px, min(x, px + pw - cw))
+            y = max(py, min(y, py + ph - ch))
+            child.geometry(f"+{x}+{y}")
+
     def _field_dialog(self, existing: Optional[dict] = None) -> Optional[dict]:
         """Open a dialog for adding/editing a field. Returns field dict or None."""
         win = ctk.CTkToplevel(self)
@@ -421,21 +472,7 @@ class ManifestTab(ctk.CTkFrame):
         win.transient(self)
         win.grab_set()
 
-        def _center_dlg(child: ctk.CTkToplevel, parent_win) -> None:
-            """Center child dialog on parent window."""
-            child.update_idletasks()
-            pw = parent_win.winfo_width()
-            ph = parent_win.winfo_height()
-            px = parent_win.winfo_x()
-            py = parent_win.winfo_y()
-            cw = child.winfo_reqwidth()
-            ch = child.winfo_reqheight()
-            if pw > 0 and ph > 0:
-                x = px + (pw - cw) // 2
-                y = py + (ph - ch) // 2
-                child.geometry(f"+{x}+{y}")
-
-        _center_dlg(win, self.winfo_toplevel())
+        self._center_dlg(win, self.winfo_toplevel())
 
         entries: dict[str, Any] = {}
         error_labels: dict[str, ctk.CTkLabel] = {}
@@ -661,7 +698,7 @@ class ManifestTab(ctk.CTkFrame):
             dlg.geometry("350x120")
             dlg.transient(win)
             dlg.grab_set()
-            _center_dlg(dlg, win)
+            self._center_dlg(dlg, win)
             ctk.CTkLabel(dlg, text="选项文本:").grid(row=0, column=0, padx=10, pady=(10, 0), sticky="w")
             entry = ctk.CTkEntry(dlg, width=250)
             entry.grid(row=0, column=1, padx=(5, 10), pady=(10, 0))
@@ -683,6 +720,7 @@ class ManifestTab(ctk.CTkFrame):
             ctk.CTkButton(dlg, text="确定", command=on_ok_opt).grid(row=1, column=0, pady=15)
             ctk.CTkButton(dlg, text="取消", command=on_cancel_opt).grid(row=1, column=1)
             entry.bind("<Return>", lambda _: on_ok_opt())
+            self._center_dlg(dlg, win)
             self.wait_window(dlg)
             if result_opt is not None:
                 _options_list.append(result_opt)
@@ -697,7 +735,7 @@ class ManifestTab(ctk.CTkFrame):
             dlg.geometry("350x120")
             dlg.transient(win)
             dlg.grab_set()
-            _center_dlg(dlg, win)
+            self._center_dlg(dlg, win)
             ctk.CTkLabel(dlg, text="选项文本:").grid(row=0, column=0, padx=10, pady=(10, 0), sticky="w")
             entry = ctk.CTkEntry(dlg, width=250)
             entry.grid(row=0, column=1, padx=(5, 10), pady=(10, 0))
@@ -916,14 +954,18 @@ class ManifestTab(ctk.CTkFrame):
         self._set_enabled(True)
         self._plugin_dir = d
         # try to load existing manifest
-        manifest_path = os.path.join(d, "manifest.json")
-        if os.path.isfile(manifest_path):
+        manifest_path = Path(d) / "manifest.json"
+        if manifest_path.is_file():
             try:
                 with open(manifest_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 self._load_manifest(data)
             except (json.JSONDecodeError, Exception) as exc:
-                messagebox.showwarning("加载失败", f"无法解析 manifest.json: {exc}")
+                if hasattr(self, '_dir_label'):
+                    self._dir_label.configure(text=f"manifest.json 解析失败",
+                                             text_color="red")
+                if hasattr(self, '_dir_path_frame'):
+                    self._dir_path_frame.configure(border_width=2, border_color="red")
 
     # ------------------------------------------------------------------
     # load / save
@@ -987,31 +1029,78 @@ class ManifestTab(ctk.CTkFrame):
 
         return data
 
+    # ------------------------------------------------------------------
+    # field level feedback
+    # ------------------------------------------------------------------
+
+    _FIELD_KEYWORDS: dict[str, str] = {
+        "id ": "id",
+        "name ": "name",
+        "version ": "version",
+        "entry ": "entry",
+        "缺少必需字段: id": "id",
+        "缺少必需字段: name": "name",
+        "缺少必需字段: version": "version",
+    }
+
+    def _clear_field_borders(self) -> None:
+        for key, widget in self._fields.items():
+            if isinstance(widget, ctk.CTkEntry):
+                widget.configure(border_width=0)
+                if key in self._field_errors:
+                    widget.configure(text_color=("gray10", "gray90"))
+        self._field_errors.clear()
+
+    def _highlight_field(self, key: str, error_text: str = "") -> None:
+        widget = self._fields.get(key)
+        if isinstance(widget, ctk.CTkEntry):
+            widget.configure(border_width=2, border_color="red", text_color="red")
+            if error_text:
+                self._field_errors[key] = error_text
+                widget.delete(0, "end")
+                widget.insert(0, error_text)
+
+    def _highlight_errors_from_validation(self, errors: list[str]) -> None:
+        """Parse validation error messages and highlight corresponding fields."""
+        for err in errors:
+            for keyword, field_key in self._FIELD_KEYWORDS.items():
+                if err.startswith(keyword):
+                    self._highlight_field(field_key, err)
+                    break
+
     def _save_manifest(self) -> None:
+        self._clear_field_borders()
+
         if not self._plugin_dir:
-            messagebox.showwarning("警告", "请先选择插件目录")
+            self._error_label.configure(text="请先选择插件目录", text_color="red")
             return
 
         data = self._build_manifest()
         if not data.get("id") or not data.get("name") or not data.get("version"):
-            messagebox.showwarning("警告", "请至少填写 id, name, version")
+            self._error_label.configure(text="")
+            if not data.get("id"):
+                self._highlight_field("id", "请填写插件 ID")
+            if not data.get("name"):
+                self._highlight_field("name", "请填写插件名称")
+            if not data.get("version"):
+                self._highlight_field("version", "请填写版本号")
             return
 
         errors = validate_manifest(data)
         if errors:
-            self._error_label.configure(text="; ".join(errors[:3]))
-            messagebox.showwarning("校验失败", "\n".join(errors))
+            self._error_label.configure(text="")
+            self._highlight_errors_from_validation(errors)
             return
 
         self._error_label.configure(text="")
 
-        path = os.path.join(self._plugin_dir, "manifest.json")
+        path = Path(self._plugin_dir) / "manifest.json"
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            messagebox.showinfo("成功", f"manifest.json 已保存到:\n{path}")
+            self._error_label.configure(text="保存成功", text_color="green")
         except Exception as exc:
-            messagebox.showerror("错误", f"保存失败: {exc}")
+            self._error_label.configure(text=f"保存失败: {exc}", text_color="red")
 
         self._refresh_preview()
 

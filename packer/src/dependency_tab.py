@@ -224,7 +224,10 @@ class DependencyTab(ctk.CTkFrame):
             return
 
         if not self._plugin_dir:
-            messagebox.showwarning("警告", "请先选择插件目录")
+            if hasattr(self, '_dir_label'):
+                self._dir_label.configure(text="请先选择插件目录", text_color="red")
+            if hasattr(self, '_dir_path_frame'):
+                self._dir_path_frame.configure(border_width=2, border_color="red")
             return
 
         self._running = True
