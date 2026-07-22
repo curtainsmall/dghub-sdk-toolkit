@@ -1,6 +1,7 @@
 """Dependency vendor-packing tab."""
 
 import os
+import shutil
 import threading
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -119,6 +120,10 @@ class DependencyTab(ctk.CTkFrame):
         self._start_btn = ctk.CTkButton(btn_frame, text="开始打包",
                                         command=self._start_pack, width=100)
         self._start_btn.pack(side="right", padx=5)
+        self._clear_vendor_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(btn_frame, text="打包前清空 vendor/",
+                        variable=self._clear_vendor_var).pack(
+            side="right", padx=(0, 5))
         self._force_vendor_var = ctk.BooleanVar(value=False)
         ctk.CTkCheckBox(btn_frame, text="始终添加 vendor/ 目录",
                         variable=self._force_vendor_var).pack(side="right", padx=(0, 5))
@@ -186,6 +191,14 @@ class DependencyTab(ctk.CTkFrame):
     def set_plugin_dir(self, d: str) -> None:
         self._plugin_dir = d
 
+    def _clear_vendor_if_needed(self) -> None:
+        if not self._clear_vendor_var.get():
+            return
+        vendor_dir = Path(self._plugin_dir) / "vendor"
+        if vendor_dir.is_dir():
+            shutil.rmtree(vendor_dir)
+            self._log_line("已清空 vendor/ 目录")
+
     def _on_pkg_focus_in(self, event: Any = None) -> None:
         if self._pkg_placeholder_active:
             self._pkg_text.delete("1.0", "end")
@@ -252,6 +265,8 @@ class DependencyTab(ctk.CTkFrame):
         method = self._method_var.get()
         vendor_dir = Path(self._plugin_dir) / "vendor"
 
+        self._clear_vendor_if_needed()
+
         def task() -> None:
             results = pack_dependencies(
                 pkgs, vendor_dir, method=method,
@@ -275,6 +290,8 @@ class DependencyTab(ctk.CTkFrame):
         vendor_dir = Path(self._plugin_dir) / "vendor"
         plugin_dir = Path(self._plugin_dir)
         files_copy = list(self._vendor_files)
+
+        self._clear_vendor_if_needed()
 
         def task() -> None:
             results = copy_files_to_vendor(
