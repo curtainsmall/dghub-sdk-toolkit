@@ -68,6 +68,15 @@ def _find_site_packages(package_name: str) -> Optional[Path]:
     return None
 
 
+def _ignore_vendor_and_cache(dir: str, contents: list[str]) -> set[str]:
+    """Ignore __pycache__, *.pyc, and vendor/ to avoid recursive nesting."""
+    ignored: set[str] = set()
+    for name in contents:
+        if name in ("__pycache__", "vendor") or name.endswith(".pyc"):
+            ignored.add(name)
+    return ignored
+
+
 # ---------------------------------------------------------------------------
 # packing methods
 # ---------------------------------------------------------------------------
@@ -94,7 +103,7 @@ def copy_from_site_packages(
 
     try:
         if src.is_dir():
-            shutil.copytree(src, dst, ignore=shutil.ignored_patterns("__pycache__", "*.pyc"))
+            shutil.copytree(src, dst, ignore=_ignore_vendor_and_cache)
         else:
             shutil.copy2(src, dst)
         if progress_callback:
@@ -197,7 +206,7 @@ def pip_download_package(
                 if pkg_dir.exists():
                     shutil.rmtree(pkg_dir)
                 shutil.copytree(src, pkg_dir,
-                                ignore=shutil.ignored_patterns("__pycache__", "*.pyc"))
+                                ignore=_ignore_vendor_and_cache)
                 if progress_callback:
                     progress_callback(f"[成功] 已下载并解压 '{norm}' → {pkg_dir}")
                 return True
@@ -221,7 +230,7 @@ def pip_download_package(
                 if pkg_dir.exists():
                     shutil.rmtree(pkg_dir)
                 shutil.copytree(sub_pkg, pkg_dir,
-                                ignore=shutil.ignored_patterns("__pycache__", "*.pyc"))
+                                ignore=_ignore_vendor_and_cache)
                 if progress_callback:
                     progress_callback(f"[成功] 已下载并解压 '{norm}' → {pkg_dir}")
                 return True
@@ -271,5 +280,63 @@ def pack_dependencies(
         if not ok and method in ("auto", "pip"):
             ok = pip_download_package(name, vendor_dir, progress_callback)
         results[name] = ok
+
+    return results
+
+
+def copy_files_to_vendor(
+    source_paths: list[str],
+    vendor_dir: Path,
+    plugin_dir: Path,
+    progress_callback: Optional[Callable[[str], None]] = None,
+) -> dict[str, bool]:
+    """Copy files/folders into vendor/ for non-Python projects.
+
+    Relative paths are resolved against plugin_dir.
+    Returns dict mapping each source path -> success (bool).
+    """
+    vendor_dir.mkdir(parents=True, exist_ok=True)
+    results: dict[str, bool] = {}
+
+    for src in source_paths:
+        src = src.strip()
+        if not src:
+            continue
+
+        src_path = Path(src)
+        if not src_path.is_absolute():
+            src_path = plugin_dir / src_path
+
+        if not src_path.exists():
+            if progress_callback:
+                progress_callback(f"[失败] 路径不存在: {src}")
+            results[src] = False
+            continue
+
+        dst = vendor_dir / src_path.name
+
+        # ── pre-validation ──────────────────────────────────────
+        # reject paths already inside vendor/ to prevent self-nesting
+        if vendor_dir in src_path.parents:
+            if progress_callback:
+                progress_callback(f"[跳过] '{src}' 已在 vendor/ 目录内，跳过以避免自嵌套")
+            results[src] = False
+            continue
+
+        try:
+            if src_path.is_dir():
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(src_path, dst,
+                                ignore=_ignore_vendor_and_cache)
+            else:
+                shutil.copy2(src_path, dst)
+            if progress_callback:
+                progress_callback(f"[成功] 已复制 '{src}' → {dst}")
+            results[src] = True
+        except Exception as exc:
+            if progress_callback:
+                progress_callback(f"[错误] 复制 '{src}' 失败: {exc}")
+            results[src] = False
 
     return results
