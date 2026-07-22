@@ -47,6 +47,19 @@ class ManifestTab(ctk.CTkFrame):
                 w.configure(state=state)
             except Exception:
                 pass
+        # lock internal tk Entry as readonly (not disabled) so
+        # placeholder stays visible; FocusIn interceptor prevents
+        # CTk from clearing it
+        entry_state = "normal" if enabled else "readonly"
+        for _, widget in self._fields.items():
+            try:
+                widget._entry.configure(state=entry_state)
+            except Exception:
+                pass
+        try:
+            self._preview._textbox.configure(state=entry_state, takefocus=bool(enabled))
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # UI construction
@@ -97,6 +110,7 @@ class ManifestTab(ctk.CTkFrame):
         self._controls.append(self._preview_wrap_cb)
         self._preview = ctk.CTkTextbox(right, wrap="none", font=("Consolas", 12))
         self._preview.pack(fill="both", expand=True)
+        self._controls.append(self._preview)
 
         # -- bottom bar --
         bottom = ctk.CTkFrame(self, fg_color="transparent")
@@ -1009,9 +1023,11 @@ class ManifestTab(ctk.CTkFrame):
         data = self._build_manifest()
         text = json.dumps(data, ensure_ascii=False, indent=2)
         self._preview.configure(state="normal")
+        self._preview._textbox.configure(state="normal")
         self._preview.delete("1.0", "end")
         self._preview.insert("1.0", text)
         self._preview.configure(state="disabled")
+        self._preview._textbox.configure(state="disabled")
 
     def _toggle_preview_wrap(self) -> None:
         """Toggle JSON preview word wrap."""

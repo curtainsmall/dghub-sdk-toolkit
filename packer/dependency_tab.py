@@ -42,7 +42,7 @@ class DependencyTab(ctk.CTkFrame):
                      font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
         self._lang_var = ctk.StringVar(value="Python")
         self._lang_menu = ctk.CTkOptionMenu(
-            lang_row, values=["Python", "Others"],
+            lang_row, values=["Python", "其他"],
             variable=self._lang_var, command=self._on_lang_change, width=120,
         )
         self._lang_menu.pack(side="left", padx=(8, 0))
@@ -125,6 +125,7 @@ class DependencyTab(ctk.CTkFrame):
 
         self._log = ctk.CTkTextbox(log_frame, wrap="word", font=("Consolas", 11))
         self._log.grid(row=1, column=0, sticky="nsew", pady=5)
+        self._log.configure(state="disabled")
 
     # ------------------------------------------------------------------
     # language switch
