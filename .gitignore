@@ -13,6 +13,10 @@
 !build_exe.py
 !requirements.txt
 
+!demo/
+!demo/**
+
+
 # Re-ignore Python cache and build artifacts
 __pycache__/
 __pycache__/**
