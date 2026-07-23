@@ -8,5 +8,24 @@
   "sdk": "1",
   "capabilities": {
     "startup_check": true
-  }
+  },
+  "config_schema": [
+    {
+      "section": "Config",
+      "fields": [
+        {
+          "key": "switch",
+          "type": "bool",
+          "label": "运行",
+          "default": false
+        },
+        {
+          "key": "strength",
+          "type": "percent",
+          "label": "强度",
+          "default": 10
+        }
+      ]
+    }
+  ]
 }

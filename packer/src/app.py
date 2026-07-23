@@ -5,10 +5,10 @@ from typing import Any
 
 import customtkinter as ctk
 
-from .manifest_tab import ManifestTab
-from .dependency_tab import DependencyTab
-from .export_tab import ExportTab
-from .settings_tab import SettingsTab
+from manifest_tab import ManifestTab
+from dependency_tab import DependencyTab
+from export_tab import ExportTab
+from settings_tab import SettingsTab
 
 
 class App(ctk.CTk):

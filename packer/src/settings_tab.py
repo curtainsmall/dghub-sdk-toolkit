@@ -5,7 +5,7 @@ from typing import Any
 
 import customtkinter as ctk
 
-from ._version import __version__ as APP_VERSION
+from _version import __version__ as APP_VERSION
 GITHUB_URL = "https://github.com/curtainsmall/dghub-sdk-toolkit"
 DGHUB_URL = "http://dghub.top/"
 

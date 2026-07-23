@@ -54,6 +54,8 @@ def main() -> int:
     _write_version()
     print("Building DGHub Plugin Packer with PyInstaller...")
 
+    src_dir = ROOT / "src"
+
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--onefile",
@@ -62,7 +64,16 @@ def main() -> int:
         "--distpath", str(ROOT / "bin"),
         "--workpath", str(ROOT / "cache" / "build_tmp"),
         "--specpath", str(ROOT / "cache"),
-        str(ROOT / "src" / "main.py"),
+        "--paths", str(src_dir),
+        "--hidden-import", "app",
+        "--hidden-import", "manifest_tab",
+        "--hidden-import", "dependency_tab",
+        "--hidden-import", "export_tab",
+        "--hidden-import", "settings_tab",
+        "--hidden-import", "_version",
+        "--hidden-import", "manifest_validator",
+        "--hidden-import", "vendor_packer",
+        str(src_dir / "main.py"),
     ]
 
     result = subprocess.run(cmd, cwd=ROOT)

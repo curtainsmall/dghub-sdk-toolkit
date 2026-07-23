@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 import customtkinter as ctk
 
-from .vendor_packer import (
+from vendor_packer import (
     DGHUB_BASE_DEPS,
     copy_files_to_vendor,
     is_dghub_base_dep,

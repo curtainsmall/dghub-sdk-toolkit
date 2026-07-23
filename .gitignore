@@ -6,6 +6,8 @@
 
 !packer/
 !packer/**
+packer/**/bin
+packer/**/bin/**
 
 !.github/
 !.github/**
@@ -17,7 +19,14 @@ demo/**/*.zip
 
 !sdk/
 !sdk/**
+sdk/**/dist/
+sdk/**/dist/**
 
 # Re-ignore Python cache and build artifacts
 __pycache__/
 __pycache__/**
+*.pyc
+
+
+*.egg-info/
+*.egg-info/**

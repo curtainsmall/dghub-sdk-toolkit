@@ -8,11 +8,8 @@ Usage:
 from pathlib import Path
 import sys
 
-# Ensure packer/ is importable (needed when running as script or PyInstaller exe)
-_pkg_dir = Path(__file__).resolve().parent
-_parent_dir = _pkg_dir.parent
-if _parent_dir not in sys.path:
-    sys.path.insert(0, _parent_dir)
+# Ensure src/ is in path (auto for direct runs, needed for PyInstaller)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
 def main() -> None:
@@ -27,7 +24,7 @@ def main() -> None:
         import ctypes
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
 
-    from packer.src.app import App
+    from app import App
     app = App()
     app.mainloop()
 

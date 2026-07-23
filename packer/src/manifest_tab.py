@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 import customtkinter as ctk
 
-from .manifest_validator import VALID_FIELD_TYPES, validate_manifest
+from manifest_validator import VALID_FIELD_TYPES, validate_manifest
 
 FIELD_TYPE_LABELS: dict[str, str] = {
     "bool": "开关 (bool)",

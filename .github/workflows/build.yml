@@ -51,7 +51,8 @@ jobs:
 
       - name: Install build deps
         run: |
-          pip install build
+          pip install -r requirements.txt
+        working-directory: sdk/python
 
       - name: Build SDK package
         run: |

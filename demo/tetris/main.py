@@ -4,7 +4,6 @@
 Tetris — pure standalone game, no external dependencies beyond pygame-ce.
 """
 import random
-
 import pygame
 
 # ── 常量 ────────────────────────────────────────────────────────────────
@@ -370,64 +369,65 @@ def main() -> None:
     das_charged = False
     soft_drop = False
 
-    running = True
-    while running:
-        dt = clock.tick(FPS) / 1000.0
+    with dghub_sdk.Agent() as agent:
+        running = True
+        while running:
+            dt = clock.tick(FPS) / 1000.0
 
-        for event in pygame.event.get():
-            match event.type:
-                case pygame.QUIT:
-                    running = False
+            for event in pygame.event.get():
+                match event.type:
+                    case pygame.QUIT:
+                        running = False
 
-                case pygame.KEYDOWN:
-                    match event.key:
-                        case pygame.K_r:
-                            game.restart()
-                        case pygame.K_LEFT:
-                            game.move(-1, 0)
-                            das_dir = -1
-                            das_timer = 0.0
-                            das_charged = False
-                        case pygame.K_RIGHT:
-                            game.move(1, 0)
-                            das_dir = 1
-                            das_timer = 0.0
-                            das_charged = False
-                        case pygame.K_DOWN:
-                            soft_drop = True
-                        case pygame.K_UP:
-                            game.rotate()
-                        case pygame.K_SPACE:
-                            game.hard_drop()
+                    case pygame.KEYDOWN:
+                        match event.key:
+                            case pygame.K_r:
+                                game.restart()
+                            case pygame.K_LEFT:
+                                game.move(-1, 0)
+                                das_dir = -1
+                                das_timer = 0.0
+                                das_charged = False
+                            case pygame.K_RIGHT:
+                                game.move(1, 0)
+                                das_dir = 1
+                                das_timer = 0.0
+                                das_charged = False
+                            case pygame.K_DOWN:
+                                soft_drop = True
+                            case pygame.K_UP:
+                                game.rotate()
+                            case pygame.K_SPACE:
+                                game.hard_drop()
 
-                case pygame.KEYUP:
-                    match event.key:
-                        case pygame.K_LEFT | pygame.K_RIGHT:
-                            das_dir = 0
-                        case pygame.K_DOWN:
-                            soft_drop = False
+                    case pygame.KEYUP:
+                        match event.key:
+                            case pygame.K_LEFT | pygame.K_RIGHT:
+                                das_dir = 0
+                            case pygame.K_DOWN:
+                                soft_drop = False
 
-        # DAS
-        if das_dir != 0:
-            das_timer += dt
-            if not das_charged and das_timer >= das_delay:
-                das_charged = True
-                das_timer = 0.0
-            elif das_charged and das_timer >= das_repeat:
-                game.move(das_dir, 0)
-                das_timer = 0.0
+            # DAS
+            if das_dir != 0:
+                das_timer += dt
+                if not das_charged and das_timer >= das_delay:
+                    das_charged = True
+                    das_timer = 0.0
+                elif das_charged and das_timer >= das_repeat:
+                    game.move(das_dir, 0)
+                    das_timer = 0.0
 
-        # soft drop speed
-        if soft_drop and not game.game_over:
-            game.drop_interval = 0.05
-        else:
-            game.drop_interval = 0.5
+            # soft drop speed
+            if soft_drop and not game.game_over:
+                game.drop_interval = 0.05
+            else:
+                game.drop_interval = 0.5
 
-        game.update(dt)
-        game.draw(screen)
-        pygame.display.flip()
+            game.update(dt)
+            game.draw(screen)
+            pygame.display.flip()
 
-    pygame.quit()
+        pygame.quit()
 
 
 if __name__ == "__main__":
