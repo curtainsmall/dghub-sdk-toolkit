@@ -29,5 +29,3 @@ __all__ = [
     "OpCode",
     "StrengthMode",
 ]
-
-__version__ = "0.1.0"
