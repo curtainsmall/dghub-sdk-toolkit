@@ -6,7 +6,7 @@ from typing import Any
 import customtkinter as ctk
 
 from ._version import __version__ as APP_VERSION
-GITHUB_URL = "https://github.com/curtainsmall/DGHub-Plugin-Toolkit"
+GITHUB_URL = "https://github.com/curtainsmall/dghub-sdk-toolkit"
 DGHUB_URL = "http://dghub.top/"
 
 
@@ -33,7 +33,7 @@ class SettingsTab(ctk.CTkFrame):
             row=0, column=0, columnspan=2, sticky="w", padx=10, pady=(10, 5))
 
         labels = [
-            ("应用名称", "DGHub Plugin Toolkit — Packer"),
+            ("应用名称", "DGHub SDK Toolkit — Packer"),
             ("版本", APP_VERSION),
         ]
         for i, (k, v) in enumerate(labels, 1):

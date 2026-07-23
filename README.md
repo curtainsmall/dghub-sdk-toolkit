@@ -1,4 +1,4 @@
-# DGHub Plugin Toolkit
+# DGHub SDK Toolkit
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/License-AGPLv3-green)
@@ -17,7 +17,7 @@
 
 ### 下载
 
-从 [Releases](https://github.com/curtainsmall/DGHub-Plugin-Toolkit/releases) 下载 `DGHubPluginPacker.exe` 直接运行。
+从 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases) 下载 `DGHubPluginPacker.exe` 直接运行。
 
 ### 使用
 
