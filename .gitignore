@@ -15,8 +15,8 @@
 demo/**/vendor
 demo/**/*.zip
 
-!sdk/
-!sdk/**
+!python/
+!python/**
 
 # Re-ignore Python cache and build artifacts
 __pycache__/

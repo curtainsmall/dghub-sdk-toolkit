@@ -1,29 +1,34 @@
+"""
+俄罗斯方块 —— 纯独立游戏，仅依赖 pygame-ce。
+
+Tetris — pure standalone game, no external dependencies beyond pygame-ce.
+"""
 import random
 
 import pygame
 
-# ── constants ──────────────────────────────────────────────────────────
+# ── 常量 ────────────────────────────────────────────────────────────────
 
-COLS = 10
-ROWS = 20
-CELL = 30
-SIDE = 200
-WIDTH = COLS * CELL + SIDE
-HEIGHT = ROWS * CELL
-FPS = 60
+COLS = 10  # 棋盘列数
+ROWS = 20  # 棋盘行数
+CELL = 30  # 每格像素
+SIDE = 200  # 侧边栏宽度
+WIDTH = COLS * CELL + SIDE  # 窗口宽
+HEIGHT = ROWS * CELL  # 窗口高
+FPS = 60  # 帧率
 
-# piece colors (RGB)
+# 七种方块颜色（RGB）
 COLORS = [
-    (0, 240, 240),   # I  cyan
-    (240, 240, 0),   # O  yellow
-    (160, 0, 240),   # T  purple
-    (0, 240, 0),     # S  green
-    (240, 0, 0),     # Z  red
-    (0, 0, 240),     # J  blue
-    (240, 160, 0),   # L  orange
+    (0, 240, 240),   # I  青色
+    (240, 240, 0),   # O  黄色
+    (160, 0, 240),   # T  紫色
+    (0, 240, 0),     # S  绿色
+    (240, 0, 0),     # Z  红色
+    (0, 0, 240),     # J  蓝色
+    (240, 160, 0),   # L  橙色
 ]
 
-# 7 standard tetrominoes as matrix bitmasks
+# 七种标准方块的矩阵掩码（7 种 Tetromino）
 SHAPES = [
     [[0, 0, 0, 0],   # I
      [1, 1, 1, 1],
@@ -49,44 +54,79 @@ SHAPES = [
 ]
 
 
-# ── Piece ──────────────────────────────────────────────────────────────
+# ── Piece 方块 ──────────────────────────────────────────────────────────
 
 class Piece:
+    """表示一个当前活动的方块（Tetromino）。"""
+
     def __init__(self, shape_idx: int):
-        self.shape = [row[:] for row in SHAPES[shape_idx]]
+        """用形状索引初始化方块。
+
+        Args:
+            shape_idx: SHAPES 列表中的索引（0=I, 1=O, 2=T, ...）
+        """
+        self.shape = SHAPES[shape_idx]
         self.color = COLORS[shape_idx]
         self.x = COLS // 2 - len(self.shape[0]) // 2
         self.y = 0
 
     def rotated(self) -> list[list[int]]:
+        """返回顺时针旋转 90 度后的形状矩阵（不修改自身）。
+
+        Returns:
+            新的形状矩阵
+        """
         rows, cols = len(self.shape), len(self.shape[0])
         return [[self.shape[rows - 1 - j][i] for j in range(rows)] for i in range(cols)]
 
 
-# ── Game ───────────────────────────────────────────────────────────────
+# ── Game 游戏 ───────────────────────────────────────────────────────────
 
 class Tetris:
+    """俄罗斯方块游戏核心逻辑。
+
+    管理棋盘状态、方块生成、碰撞检测、消行计分、下落计时等。
+    """
+
     def __init__(self):
+        """初始化游戏：清空棋盘、重置分数、生成第一个方块。"""
         self.board: list[list[tuple[int, int, int] | None]] = [[None] * COLS for _ in range(ROWS)]
         self.score = 0
         self.game_over = False
         self.bag: list[int] = []
         self.piece = self._spawn()
-        self.drop_interval = 0.5
+        self.drop_interval = 0.5  # 秒
         self.drop_timer = 0.0
 
     def _refill_bag(self) -> None:
+        """向 7-bag 随机序列补充一组形状索引（Fisher–Yates shuffle）。"""
         bag = list(range(len(SHAPES)))
         random.shuffle(bag)
         self.bag.extend(bag)
 
     def _spawn(self) -> Piece:
+        """从 bag 中取出下一个形状生成新方块。
+
+        Returns:
+            新的 Piece 实例
+        """
         if len(self.bag) < 1:
             self._refill_bag()
         return Piece(self.bag.pop())
 
     def _valid(self, piece: Piece, dx: int = 0, dy: int = 0,
                shape: list[list[int]] | None = None) -> bool:
+        """检查方块在给定偏移和形状下是否合法（不越界、不碰撞）。
+
+        Args:
+            piece: 要检查的方块
+            dx: 水平偏移量
+            dy: 垂直偏移量
+            shape: 可选的替代形状（用于旋转检测），默认用 piece.shape
+
+        Returns:
+            True 表示位置合法
+        """
         s = shape or piece.shape
         for r, row in enumerate(s):
             for c, v in enumerate(row):
@@ -101,6 +141,10 @@ class Tetris:
         return True
 
     def _lock(self) -> None:
+        """将当前方块固定到棋盘上，然后消行并生成下一个方块。
+
+        如果方块落在棋盘上方则游戏结束。
+        """
         above_board = False
         for r, row in enumerate(self.piece.shape):
             for c, v in enumerate(row):
@@ -120,6 +164,10 @@ class Tetris:
             self._on_game_over()
 
     def _clear_lines(self) -> None:
+        """检测并消除满行，更新分数。
+
+        消除 1/2/3/4 行分别得 100/300/500/800 分。
+        """
         cleared = 0
         new_board: list[list[tuple[int, int, int] | None]] = []
         for row in self.board:
@@ -133,12 +181,22 @@ class Tetris:
         self.score += [0, 100, 300, 500, 800][cleared]
 
     def _on_game_over(self) -> None:
+        """处理游戏结束：设置标志并打印分数。"""
         self.game_over = True
         print(f"[Tetris] Game Over! Score: {self.score}")
 
-    # ── input ──
+    # ── 输入 ──
 
     def move(self, dx: int, dy: int) -> bool:
+        """尝试移动当前方块。
+
+        Args:
+            dx: 水平偏移（负=左，正=右）
+            dy: 垂直偏移（正=下）
+
+        Returns:
+            是否移动成功
+        """
         if self.game_over:
             return False
         if self._valid(self.piece, dx, dy):
@@ -148,6 +206,7 @@ class Tetris:
         return False
 
     def rotate(self) -> None:
+        """尝试顺时针旋转当前方块，含 Wall Kick 补偿（左右各试一次）。"""
         if self.game_over:
             return
         r = self.piece.rotated()
@@ -161,6 +220,7 @@ class Tetris:
             self.piece.shape = r
 
     def hard_drop(self) -> None:
+        """硬降：将方块直接落到底部并固定。"""
         if self.game_over:
             return
         while self._valid(self.piece, 0, 1):
@@ -168,6 +228,7 @@ class Tetris:
         self._lock()
 
     def restart(self) -> None:
+        """重置游戏状态。"""
         self.board = [[None] * COLS for _ in range(ROWS)]
         self.score = 0
         self.game_over = False
@@ -175,9 +236,14 @@ class Tetris:
         self.piece = self._spawn()
         self.drop_timer = 0.0
 
-    # ── update ──
+    # ── 更新 ──
 
     def update(self, dt: float) -> None:
+        """按帧更新下落计时器，触发自动下落。
+
+        Args:
+            dt: 本帧经过的秒数
+        """
         if self.game_over:
             return
         self.drop_timer += dt
@@ -186,9 +252,14 @@ class Tetris:
             if not self.move(0, 1):
                 self._lock()
 
-    # ── draw ──
+    # ── 绘制 ──
 
     def draw(self, surface: pygame.Surface) -> None:
+        """绘制完整游戏画面：棋盘、当前方块、侧边栏、Game Over 覆盖层。
+
+        Args:
+            surface: 目标 pygame 表面
+        """
         surface.fill((18, 18, 24))
 
         board_rect = pygame.Rect(0, 0, CELL * COLS, CELL * ROWS)
@@ -214,7 +285,7 @@ class Tetris:
                         self._draw_cell(surface, self.piece.x + c, py,
                                         self.piece.color)
 
-        # sidebar
+        # 侧边栏
         sx = CELL * COLS + 20
         font = pygame.font.SysFont("consolas", 22)
         big_font = pygame.font.SysFont("consolas", 32, bold=True)
@@ -226,9 +297,9 @@ class Tetris:
         surface.blit(score_label, (sx, 80))
 
         controls = [
-            "\u2190 \u2192 : Move",
-            "\u2191   : Rotate",
-            "\u2193   : Soft drop",
+            "← → : Move",
+            "↑   : Rotate",
+            "↓   : Soft drop",
             "Space: Hard drop",
             "R   : Restart",
         ]
@@ -240,7 +311,7 @@ class Tetris:
             y += 24
 
         if self.game_over:
-            # semi-transparent overlay
+            # 半透明覆盖层
             overlay = pygame.Surface((CELL * COLS, CELL * ROWS), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 140))
             surface.blit(overlay, (0, 0))
@@ -260,6 +331,14 @@ class Tetris:
 
     def _draw_cell(self, surface: pygame.Surface, x: int, y: int,
                    color: tuple[int, int, int]) -> None:
+        """绘制单个方块格子，带高光边缘。
+
+        Args:
+            surface: 目标表面
+            x: 格子列坐标
+            y: 格子行坐标
+            color: RGB 颜色元组
+        """
         rect = pygame.Rect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2)
         pygame.draw.rect(surface, color, rect, border_radius=4)
         lighter = tuple(min(c + 40, 255) for c in color)
@@ -272,6 +351,11 @@ class Tetris:
 # ── Main ───────────────────────────────────────────────────────────────
 
 def main() -> None:
+    """俄罗斯方块主函数。
+
+    初始化 pygame 窗口、创建游戏实例、运行主循环（含 DAS 自动连发处理），
+    退出时调用 pygame.quit()。
+    """
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Tetris")
@@ -291,34 +375,37 @@ def main() -> None:
         dt = clock.tick(FPS) / 1000.0
 
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
+            match event.type:
+                case pygame.QUIT:
+                    running = False
 
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_r:
-                    game.restart()
-                elif event.key == pygame.K_LEFT:
-                    game.move(-1, 0)
-                    das_dir = -1
-                    das_timer = 0.0
-                    das_charged = False
-                elif event.key == pygame.K_RIGHT:
-                    game.move(1, 0)
-                    das_dir = 1
-                    das_timer = 0.0
-                    das_charged = False
-                elif event.key == pygame.K_DOWN:
-                    soft_drop = True
-                elif event.key == pygame.K_UP:
-                    game.rotate()
-                elif event.key == pygame.K_SPACE:
-                    game.hard_drop()
+                case pygame.KEYDOWN:
+                    match event.key:
+                        case pygame.K_r:
+                            game.restart()
+                        case pygame.K_LEFT:
+                            game.move(-1, 0)
+                            das_dir = -1
+                            das_timer = 0.0
+                            das_charged = False
+                        case pygame.K_RIGHT:
+                            game.move(1, 0)
+                            das_dir = 1
+                            das_timer = 0.0
+                            das_charged = False
+                        case pygame.K_DOWN:
+                            soft_drop = True
+                        case pygame.K_UP:
+                            game.rotate()
+                        case pygame.K_SPACE:
+                            game.hard_drop()
 
-            elif event.type == pygame.KEYUP:
-                if event.key in (pygame.K_LEFT, pygame.K_RIGHT):
-                    das_dir = 0
-                if event.key == pygame.K_DOWN:
-                    soft_drop = False
+                case pygame.KEYUP:
+                    match event.key:
+                        case pygame.K_LEFT | pygame.K_RIGHT:
+                            das_dir = 0
+                        case pygame.K_DOWN:
+                            soft_drop = False
 
         # DAS
         if das_dir != 0:
