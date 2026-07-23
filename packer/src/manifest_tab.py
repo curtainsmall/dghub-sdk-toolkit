@@ -245,7 +245,7 @@ class ManifestTab(ctk.CTkFrame):
             self._field_container, text="",
             text_color="red", anchor="center",
             font=ctk.CTkFont(size=12))
-        self._field_error_label.grid(row=0, column=0)
+        # 初始隐藏，有错误时才显示
 
         fld_btn_frame = ctk.CTkFrame(sec_right, fg_color="transparent")
         fld_btn_frame.grid(row=2, column=0, pady=5)
@@ -375,6 +375,7 @@ class ManifestTab(ctk.CTkFrame):
             btn.destroy()
         self._field_buttons.clear()
         self._field_error_label.configure(text="")
+        self._field_error_label.grid_remove()
     
         sec = self._get_current_section()
         if sec is None:
@@ -410,6 +411,7 @@ class ManifestTab(ctk.CTkFrame):
         sec = self._get_current_section()
         if sec is None:
             self._field_error_label.configure(text="请先选择一个配置分组")
+            self._field_error_label.grid(row=0, column=0)
             self._error_label.configure(text="", text_color="red")
             return
         field = self._field_dialog()
