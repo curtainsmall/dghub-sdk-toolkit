@@ -4,7 +4,7 @@ import os
 import shutil
 import threading
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
 from typing import Any, Optional
 
 import customtkinter as ctk
@@ -71,10 +71,17 @@ class DependencyTab(ctk.CTkFrame):
         self._pkg_text.bind("<FocusIn>", self._on_pkg_focus_in)
         self._pkg_text.bind("<FocusOut>", self._on_pkg_focus_out)
 
-        # method — only site-packages, no selector needed
-        ctk.CTkLabel(self._python_frame, text="打包方式: 从 site-packages 复制",
-                     font=ctk.CTkFont(size=11), text_color="gray").grid(
-            row=2, column=1, sticky="nw", padx=10, pady=5)
+        # method selector
+        method_frame = ctk.CTkFrame(self._python_frame, fg_color="transparent")
+        method_frame.grid(row=2, column=1, sticky="nw", padx=10, pady=5)
+        ctk.CTkLabel(method_frame, text="打包方式:").pack(anchor="w")
+        self._method_var = ctk.StringVar(value="auto")
+        methods = [("自动 (先找本地安装，没有则 pip 下载)", "auto"),
+                   ("从 site-packages 复制", "site-packages"),
+                   ("从 pip 下载", "pip")]
+        for text, val in methods:
+            ctk.CTkRadioButton(method_frame, text=text, variable=self._method_var,
+                               value=val).pack(anchor="w", pady=2)
 
         # include dghub-sdk checkbox
         self._include_sdk_var = ctk.BooleanVar(value=True)
@@ -250,16 +257,12 @@ class DependencyTab(ctk.CTkFrame):
         if self._include_sdk_var.get() and "dghub_sdk" not in pkgs:
             pkgs.append("dghub_sdk")
 
-        # check for base deps
+        # check for base deps — log and skip, don't block
         base_deps = [p for p in pkgs if is_dghub_base_dep(p)]
         if base_deps:
-            if not messagebox.askyesno(
-                "基础依赖",
-                f"以下包是 DGHub 已提供的基础依赖，通常不需要 vendor:\n"
-                f"{', '.join(base_deps)}\n\n仍然继续？"
-            ):
-                self._finish_pack()
-                return
+            self._log_line(
+                f"[跳过] 以下包是 DGHub 已提供的基础依赖，无需 vendor:"
+                f" {', '.join(base_deps)}")
 
         # zero-pack: force create an empty vendor/ if option is checked
         if not pkgs:
@@ -268,13 +271,14 @@ class DependencyTab(ctk.CTkFrame):
 
         self._log_line(f"开始打包 {len(pkgs)} 个依赖到 vendor/ ...")
 
+        method = self._method_var.get()
         vendor_dir = Path(self._plugin_dir) / "vendor"
 
         self._clear_vendor_if_needed()
 
         def task() -> None:
             results = pack_dependencies(
-                pkgs, vendor_dir,
+                pkgs, vendor_dir, method=method,
                 progress_callback=self._log_line,
             )
             success = sum(1 for v in results.values() if v)
