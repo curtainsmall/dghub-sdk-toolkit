@@ -15,6 +15,7 @@ class DistributeTab(ctk.CTkFrame):
         super().__init__(master, **kwargs)
         self._pm: Optional[ProjectManager] = None
         self._plugin_dir: Optional[str] = None
+        self._loading = False
         self._build_ui()
         self._set_enabled(False)
 
@@ -104,6 +105,18 @@ class DistributeTab(ctk.CTkFrame):
         self._preview.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
         self._controls.append(self._preview)
 
+        # -- persist every setting change immediately --
+        self._entry_var.trace_add("write", self._on_setting_changed)
+        self._build_exe_var.trace_add("write", self._on_setting_changed)
+        self._include_sdk_var.trace_add("write", self._on_setting_changed)
+        self._target_var.trace_add("write", self._on_setting_changed)
+
+    def _on_setting_changed(self, *args: Any) -> None:
+        """Persist settings on any control change (skips restore phase)."""
+        if self._loading:
+            return
+        self.save_settings()
+
     def _on_build_exe_toggle(self) -> None:
         self._refresh_preview()
 
@@ -117,34 +130,33 @@ class DistributeTab(ctk.CTkFrame):
         self._plugin_dir = d
         self._set_enabled(True)
         if self._pm:
-            # Load saved project settings
-            project = self._pm.read_project()
-            if "entry" in project:
-                self._entry_var.set(project["entry"])
-            if "build_exe" in project:
-                self._build_exe_var.set(project["build_exe"])
-            if "include_sdk" in project:
-                self._include_sdk_var.set(project["include_sdk"])
-            if "target" in project:
-                self._target_var.set(project["target"])
+            # Load saved project settings (suppress autosave during restore)
+            self._loading = True
+            try:
+                project = self._pm.read_project()
+                if "entry" in project:
+                    self._entry_var.set(project["entry"])
+                if "build_exe" in project:
+                    self._build_exe_var.set(project["build_exe"])
+                if "include_sdk" in project:
+                    self._include_sdk_var.set(project["include_sdk"])
+                if "target" in project:
+                    self._target_var.set(project["target"])
+            finally:
+                self._loading = False
         self._refresh_preview()
-
-    def _auto_save(self) -> None:
-        if not self._pm:
-            return
-        # Distribute tab saves settings lazily (not on every keystroke)
-        # Call this explicitly when needed
 
     def save_settings(self) -> None:
         """Save current distribute settings to project config."""
         if not self._pm:
             return
-        data = {
+        data = self._pm.read_project()
+        data.update({
             "entry": self._entry_var.get(),
             "build_exe": self._build_exe_var.get(),
             "include_sdk": self._include_sdk_var.get(),
             "target": self._target_var.get(),
-        }
+        })
         self._pm.write_project(data)
 
     def refresh_preview(self, output_dir: str = "") -> None:

@@ -49,6 +49,35 @@ def _log(msg: str, cb: Optional[Callable[[str], None]]) -> None:
         cb(msg)
 
 
+def _check_pyinstaller(py_exe: list[str],
+                       cb: Optional[Callable[[str], None]]) -> bool:
+    """Verify PyInstaller is available before starting the build.
+
+    Runs ``python -m PyInstaller --version``. Returns True on success,
+    otherwise logs a clear, actionable message and returns False.
+    """
+    try:
+        result = subprocess.run(
+            py_exe + ["-m", "PyInstaller", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            creationflags=_NO_WINDOW,
+        )
+    except FileNotFoundError:
+        _log("[错误] 未找到 Python 解释器，无法调用 PyInstaller", cb)
+        return False
+    except Exception as exc:
+        _log(f"[错误] 检测 PyInstaller 失败: {exc}", cb)
+        return False
+    if result.returncode != 0:
+        _log("[错误] 未检测到 PyInstaller，请在构建环境执行 "
+             "pip install pyinstaller", cb)
+        return False
+    _log(f"  PyInstaller 版本: {result.stdout.strip()}", cb)
+    return True
+
+
 # ---------------------------------------------------------------------------
 # public API
 # ---------------------------------------------------------------------------
@@ -97,6 +126,8 @@ def build_plugin_exe(
 
     # ---- build PyInstaller command ----
     py_exe = _get_python_exe()
+    if not _check_pyinstaller(py_exe, log_callback):
+        return False
     cmd = py_exe + [
         "-m", "PyInstaller",
         "--onefile",
@@ -137,7 +168,7 @@ def build_plugin_exe(
             creationflags=_NO_WINDOW,
         )
     except FileNotFoundError:
-        _log("[错误] 未找到 PyInstaller，请先 pip install pyinstaller", log_callback)
+        _log("[错误] 未找到 Python 解释器，无法运行 PyInstaller", log_callback)
         return False
     except Exception as exc:
         _log(f"[错误] 启动 PyInstaller 失败: {exc}", log_callback)

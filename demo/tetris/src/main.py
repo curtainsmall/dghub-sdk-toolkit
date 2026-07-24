@@ -385,7 +385,7 @@ def main() -> None:
 
     global activated, strength
     with dghub_sdk.Agent() as agent:
-        agent.on_config = on_config_changed_callback
+        agent.on_config_changed = on_config_changed_callback
 
         running = True
         while running:
@@ -395,15 +395,22 @@ def main() -> None:
             while e := agent.get_exception():
                 pass
 
-            if not punished and game.game_over:
-                agent.send_trigger(
-                    action=Action.BOTH,
-                    delta_pct=strength,
-                    duration_s=5
-                )
-                punished = True
+            if game.game_over:
+                if not punished:
+                    agent.send_trigger(
+                        action=dghub_sdk.Action.BOTH,
+                        delta_pct=strength,
+                        duration_s=5
+                    )
+                    punished = True
+            else:
+                # re-arm once a new game starts (e.g. after restart)
+                punished = False
 
             for event in pygame.event.get():
+                if not activated:
+                    continue
+
                 match event.type:
                     case pygame.QUIT:
                         running = False
