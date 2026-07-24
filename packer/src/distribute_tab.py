@@ -37,10 +37,12 @@ class DistributeTab(ctk.CTkFrame):
         entry_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
         entry_frame.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(entry_frame, text="入口文件 *",
-                     font=ctk.CTkFont(weight="bold"),
-                     text_color="red").grid(row=0, column=0, padx=10, pady=10,
-                                            sticky="w")
+        label_frame = ctk.CTkFrame(entry_frame, fg_color="transparent")
+        label_frame.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        ctk.CTkLabel(label_frame, text="入口文件 ",
+                     font=ctk.CTkFont(weight="bold")).pack(side="left")
+        ctk.CTkLabel(label_frame, text="*", text_color="red",
+                     font=ctk.CTkFont(size=14)).pack(side="left")
         self._entry_var = ctk.StringVar(value="main.py")
         self._entry_entry = ctk.CTkEntry(entry_frame, textvariable=self._entry_var)
         self._entry_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=10)
@@ -189,3 +191,7 @@ class DistributeTab(ctk.CTkFrame):
 
     def get_target(self) -> str:
         return self._target_var.get()
+
+    def clear_entry_error(self) -> None:
+        """Reset entry field border after source dir change."""
+        self._entry_entry.configure(border_width=0)

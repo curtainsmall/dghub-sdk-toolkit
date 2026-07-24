@@ -31,5 +31,6 @@ __pycache__/**
 *.egg-info/**
 
 **/cache/**
+**/output/**
 
 **/.dghub-sdk/**
