@@ -5,6 +5,7 @@ Tetris — pure standalone game, no external dependencies beyond pygame-ce.
 """
 import random
 import pygame
+import dghub_sdk
 
 # ── 常量 ────────────────────────────────────────────────────────────────
 
@@ -347,6 +348,17 @@ class Tetris:
                          (rect.x + 2, rect.bottom - 3))
 
 
+activated = False
+strength = 20
+def on_config_changed_callback(key: str, value: Any):
+    global activated, strength
+    match key:
+        case "switch":
+            activated = value
+        case "strength":
+            strength = value
+
+
 # ── Main ───────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -369,10 +381,27 @@ def main() -> None:
     das_charged = False
     soft_drop = False
 
+    punished = True
+
+    global activated, strength
     with dghub_sdk.Agent() as agent:
+        agent.on_config = on_config_changed_callback
+
         running = True
         while running:
             dt = clock.tick(FPS) / 1000.0
+
+            agent.poll()
+            while e := agent.get_exception():
+                pass
+
+            if not punished and game.game_over:
+                agent.send_trigger(
+                    action=Action.BOTH,
+                    delta_pct=strength,
+                    duration_s=5
+                )
+                punished = True
 
             for event in pygame.event.get():
                 match event.type:
