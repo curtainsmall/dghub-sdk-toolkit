@@ -6,6 +6,7 @@ Tetris — pure standalone game, no external dependencies beyond pygame-ce.
 import random
 import pygame
 import dghub_sdk
+from typing import Any
 
 # ── 常量 ────────────────────────────────────────────────────────────────
 
@@ -358,8 +359,28 @@ def on_config_changed_callback(key: str, value: Any):
         case "strength":
             strength = value
 
+def on_config_callback(configs: dict[str, Any]):
+    global activated, strength
+    for key, value in configs.items():
+        match key:
+            case "switch":
+                activated = value
+            case "strength":
+                strength = value
 
 # ── Main ───────────────────────────────────────────────────────────────
+
+def _draw_pause_overlay(surface: pygame.Surface) -> None:
+    """在当前画面上叠加半透明「已暂停」提示（插件开关关闭时）。"""
+    overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 150))
+    surface.blit(overlay, (0, 0))
+    font = pygame.font.Font(None, 48)
+    text = font.render("PAUSED", True, (240, 240, 240))
+    rect = text.get_rect(center=(surface.get_width() // 2,
+                                 surface.get_height() // 2))
+    surface.blit(text, rect)
+
 
 def main() -> None:
     """俄罗斯方块主函数。
@@ -385,6 +406,7 @@ def main() -> None:
 
     global activated, strength
     with dghub_sdk.Agent() as agent:
+        agent.on_config = on_config_callback
         agent.on_config_changed = on_config_changed_callback
 
         running = True
@@ -395,10 +417,26 @@ def main() -> None:
             while e := agent.get_exception():
                 pass
 
+            # -- paused when the plugin switch is off --
+            if not activated:
+                # keep the window responsive; only allow closing
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        running = False
+                # drop transient input so movement won't resume stuck
+                das_dir = 0
+                das_timer = 0.0
+                das_charged = False
+                soft_drop = False
+                game.draw(screen)
+                _draw_pause_overlay(screen)
+                pygame.display.flip()
+                continue
+
             if game.game_over:
                 if not punished:
                     agent.send_trigger(
-                        action=dghub_sdk.Action.BOTH,
+                        action=dghub_sdk.Action.STRENGTH,
                         delta_pct=strength,
                         duration_s=5
                     )
@@ -408,9 +446,6 @@ def main() -> None:
                 punished = False
 
             for event in pygame.event.get():
-                if not activated:
-                    continue
-
                 match event.type:
                     case pygame.QUIT:
                         running = False
