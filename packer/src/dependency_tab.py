@@ -1,330 +1,154 @@
-"""Dependency vendor-packing tab."""
+"""Dependencies tab — declare packages to vendor at build time."""
 
-import os
-import shutil
-import threading
+import json
 from pathlib import Path
-from tkinter import filedialog
 from typing import Any, Optional
 
 import customtkinter as ctk
 
-from vendor_packer import (
-    DGHUB_BASE_DEPS,
-    copy_files_to_vendor,
-    is_dghub_base_dep,
-    pack_dependencies,
-)
+from project_manager import ProjectManager
 
 
 class DependencyTab(ctk.CTkFrame):
-    """Tab for packing third-party dependencies into vendor/."""
+    """Tab for declaring plugin dependencies.
+
+    No live packing — packages are only vendored during the build pipeline.
+    Changes auto-save to `.dghub-sdk/deps.json`.
+    """
 
     def __init__(self, master: Any, **kwargs: Any) -> None:
         super().__init__(master, **kwargs)
-        self._plugin_dir: Optional[str] = None
-        self._running = False
-        self._vendor_files: list[str] = []
+        self._pm: Optional[ProjectManager] = None
+        self._pkgs: list[str] = []
         self._build_ui()
+        self._set_enabled(False)
+
+    def _set_enabled(self, enabled: bool) -> None:
+        state = "normal" if enabled else "disabled"
+        for w in self._controls:
+            try:
+                w.configure(state=state)
+            except Exception:
+                pass
 
     def _build_ui(self) -> None:
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=1)
 
-        # -- package input --
-        input_frame = ctk.CTkFrame(self)
-        input_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
-        input_frame.grid_columnconfigure(1, weight=1)
+        # -- header --
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+        header.grid_columnconfigure(1, weight=1)
 
-        # -- language selector --
-        lang_row = ctk.CTkFrame(input_frame, fg_color="transparent")
-        lang_row.grid(row=0, column=0, columnspan=2, sticky="ew", padx=5, pady=(5, 2))
-        ctk.CTkLabel(lang_row, text="项目语言:",
-                     font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
-        self._lang_var = ctk.StringVar(value="Python")
-        self._lang_menu = ctk.CTkComboBox(
-            lang_row, values=["Python", "其他"],
-            variable=self._lang_var, command=self._on_lang_change, width=120,
-        )
-        self._lang_menu.pack(side="left", padx=(8, 0))
+        ctk.CTkLabel(header, text="声明依赖",
+                     font=ctk.CTkFont(size=18, weight="bold")).grid(
+            row=0, column=0, sticky="w", padx=(0, 10))
 
-        # ============ Python mode ============
-        self._python_frame = ctk.CTkFrame(input_frame, fg_color="transparent")
-        self._python_frame.grid(row=1, column=0, columnspan=2, sticky="nsew")
+        self._pkg_entry = ctk.CTkEntry(header,
+                                        placeholder_text="输入包名后点击添加...")
+        self._pkg_entry.grid(row=0, column=1, sticky="ew", padx=5)
+        self._pkg_entry.bind("<Return>", lambda _: self._add_pkg())
 
-        ctk.CTkLabel(self._python_frame, text="需要 vendor 的包名:",
-                     font=ctk.CTkFont(size=13, weight="bold")).grid(
-            row=0, column=0, columnspan=2, sticky="w", padx=5, pady=(10, 2))
+        self._add_btn = ctk.CTkButton(header, text="添加", width=60,
+                                      command=self._add_pkg)
+        self._add_btn.grid(row=0, column=2, padx=(5, 0))
 
-        hint = (f"每行一个包名\n"
-                f"DGHub 已提供: {', '.join(sorted(DGHUB_BASE_DEPS))}")
-        ctk.CTkLabel(self._python_frame, text=hint,
-                     font=ctk.CTkFont(size=11), text_color="gray").grid(
-            row=1, column=0, columnspan=2, sticky="w", padx=5)
+        self._controls: list[ctk.CTkBaseClass] = []
+        self._controls.extend([self._pkg_entry, self._add_btn])
 
-        self._pkg_text = ctk.CTkTextbox(self._python_frame, height=80, width=300)
-        self._pkg_text.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
-        self._pkg_placeholder = "pymem\nvdf"
-        self._pkg_placeholder_active = True
-        self._pkg_text.insert("1.0", self._pkg_placeholder)
-        self._pkg_text.configure(text_color="gray")
-        self._pkg_text.bind("<FocusIn>", self._on_pkg_focus_in)
-        self._pkg_text.bind("<FocusOut>", self._on_pkg_focus_out)
+        # -- hint --
+        hint_frame = ctk.CTkFrame(self, fg_color="transparent")
+        hint_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 5))
+        ctk.CTkLabel(hint_frame,
+                     text="dghub-sdk 会自动包含。DGHub 基础依赖（websockets）和 Python 标准库无需声明，构建时自动跳过。",
+                     font=ctk.CTkFont(size=11), text_color="gray",
+                     wraplength=600, justify="left").pack(anchor="w")
 
-        # method selector
-        method_frame = ctk.CTkFrame(self._python_frame, fg_color="transparent")
-        method_frame.grid(row=2, column=1, sticky="nw", padx=10, pady=5)
-        ctk.CTkLabel(method_frame, text="打包方式:").pack(anchor="w")
-        self._method_var = ctk.StringVar(value="auto")
-        methods = [("自动 (先找本地安装，没有则 pip 下载)", "auto"),
-                   ("从 site-packages 复制", "site-packages"),
-                   ("从 pip 下载", "pip")]
-        for text, val in methods:
-            ctk.CTkRadioButton(method_frame, text=text, variable=self._method_var,
-                               value=val).pack(anchor="w", pady=2)
+        # -- package list --
+        self._list_frame = ctk.CTkScrollableFrame(self)
+        self._list_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
+        self._list_frame.grid_columnconfigure(0, weight=1)
 
-        # include dghub-sdk checkbox
-        self._include_sdk_var = ctk.BooleanVar(value=True)
-        ctk.CTkCheckBox(self._python_frame, text="包含 dghub-sdk",
-                        variable=self._include_sdk_var).grid(
-            row=3, column=0, sticky="w", padx=5, pady=(0, 5))
-
-        # ============ Others mode ============
-        self._others_frame = ctk.CTkFrame(input_frame, fg_color="transparent")
-        self._others_frame.grid(row=1, column=0, columnspan=2, sticky="nsew")
-        self._others_frame.grid_remove()
-        self._others_frame.grid_columnconfigure(0, weight=1)
-        self._others_frame.grid_rowconfigure(1, weight=1)
-
-        ctk.CTkLabel(self._others_frame, text="需要 vendor 的文件/文件夹:",
-                     font=ctk.CTkFont(size=13, weight="bold")).grid(
-            row=0, column=0, sticky="w", padx=5, pady=(10, 2))
-
-        self._vendor_list_frame = ctk.CTkScrollableFrame(
-            self._others_frame, height=80)
-        self._vendor_list_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=2)
-        self._vendor_list_frame.grid_columnconfigure(0, weight=1)
-
-        file_btn_frame = ctk.CTkFrame(self._others_frame, fg_color="transparent")
-        file_btn_frame.grid(row=2, column=0, sticky="w", padx=5, pady=5)
-        ctk.CTkButton(file_btn_frame, text="添加文件", width=100,
-                      command=self._add_file).pack(side="left", padx=(0, 5))
-        ctk.CTkButton(file_btn_frame, text="添加文件夹", width=100,
-                      command=self._add_directory).pack(side="left", padx=5)
-
-        # -- progress log --
-        log_frame = ctk.CTkFrame(self)
-        log_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
-        log_frame.grid_rowconfigure(0, weight=0)
-        log_frame.grid_rowconfigure(1, weight=1)
-        log_frame.grid_columnconfigure(0, weight=1)
-
-        btn_frame = ctk.CTkFrame(log_frame, fg_color="transparent")
-        btn_frame.grid(row=0, column=0, sticky="ew", pady=(5, 0))
-        ctk.CTkLabel(btn_frame, text="打包日志",
-                     font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
-        self._start_btn = ctk.CTkButton(btn_frame, text="开始打包",
-                                        command=self._start_pack, width=100)
-        self._start_btn.pack(side="right", padx=5)
-        self._clear_vendor_var = ctk.BooleanVar(value=True)
-        ctk.CTkCheckBox(btn_frame, text="打包前清空 vendor/",
-                        variable=self._clear_vendor_var).pack(
-            side="right", padx=(0, 5))
-        self._force_vendor_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(btn_frame, text="始终添加 vendor/ 目录",
-                        variable=self._force_vendor_var).pack(side="right", padx=(0, 5))
-
-        self._log = ctk.CTkTextbox(log_frame, wrap="word", font=("Consolas", 11))
-        self._log.grid(row=1, column=0, sticky="nsew", pady=5)
-        self._log.configure(state="disabled")
+        self._controls.append(self._list_frame)
 
     # ------------------------------------------------------------------
-    # language switch
+    # package management
     # ------------------------------------------------------------------
 
-    def _on_lang_change(self, lang: str) -> None:
-        if lang == "Python":
-            self._python_frame.grid()
-            self._others_frame.grid_remove()
-        else:
-            self._python_frame.grid_remove()
-            self._others_frame.grid()
+    def _add_pkg(self) -> None:
+        raw = self._pkg_entry.get().strip()
+        if not raw:
+            return
+        # Normalize: replace dash with underscore for Python imports
+        name = raw.strip().lower().replace(" ", "_").replace("-", "_")
+        if name in self._pkgs or name == "dghub_sdk":
+            return
+        self._pkgs.append(name)
+        self._pkg_entry.delete(0, "end")
+        self._refresh_list()
+        self._auto_save()
 
-    # ------------------------------------------------------------------
-    # file / folder picker (Others mode)
-    # ------------------------------------------------------------------
+    def _remove_pkg(self, idx: int) -> None:
+        if 0 <= idx < len(self._pkgs):
+            self._pkgs.pop(idx)
+            self._refresh_list()
+            self._auto_save()
 
-    def _add_file(self) -> None:
-        files = filedialog.askopenfilenames(title="选择需要 vendor 的文件")
-        for f in files:
-            if f not in self._vendor_files:
-                self._vendor_files.append(f)
-        self._refresh_vendor_list()
-
-    def _add_directory(self) -> None:
-        d = filedialog.askdirectory(title="选择需要 vendor 的文件夹")
-        if d and d not in self._vendor_files:
-            self._vendor_files.append(d)
-            self._refresh_vendor_list()
-
-    def _remove_vendor_file(self, idx: int) -> None:
-        if 0 <= idx < len(self._vendor_files):
-            self._vendor_files.pop(idx)
-            self._refresh_vendor_list()
-
-    def _refresh_vendor_list(self) -> None:
-        for w in self._vendor_list_frame.winfo_children():
+    def _refresh_list(self) -> None:
+        for w in self._list_frame.winfo_children():
             w.destroy()
-        if not self._vendor_files:
-            ctk.CTkLabel(self._vendor_list_frame, text="(尚未添加任何文件或文件夹)",
-                         text_color="gray").pack(pady=10)
-            return
-        for i, path in enumerate(self._vendor_files):
-            row = ctk.CTkFrame(self._vendor_list_frame, fg_color="transparent")
-            row.pack(fill="x", padx=2, pady=1)
-            ctk.CTkLabel(row, text=path, anchor="w").pack(
-                side="left", fill="x", expand=True)
-            ctk.CTkButton(row, text="×", width=24, height=22,
-                          fg_color="transparent", hover_color="#FF4444",
-                          font=ctk.CTkFont(size=14),
-                          command=lambda idx=i: self._remove_vendor_file(idx)
-                          ).pack(side="right")
+
+        # Always show dghub-sdk first (immutable)
+        self._add_row("dghub_sdk", immutable=True)
+
+        for i, pkg in enumerate(self._pkgs):
+            self._add_row(pkg, idx=i)
+
+        if not self._pkgs:
+            self._list_frame.grid_rowconfigure(0, weight=1)
+        else:
+            self._list_frame.grid_rowconfigure(len(self._pkgs), weight=1)
+
+    def _add_row(self, name: str, immutable: bool = False,
+                 idx: int = -1) -> None:
+        row = ctk.CTkFrame(self._list_frame, fg_color="transparent")
+        row.pack(fill="x", padx=2, pady=1)
+        row.grid_columnconfigure(0, weight=1)
+
+        label = ctk.CTkLabel(row, text=name, anchor="w")
+        label.pack(side="left", fill="x", expand=True)
+        self._controls.append(label)
+
+        if immutable:
+            ctk.CTkLabel(row, text="✔ 始终包含",
+                         text_color="green",
+                         font=ctk.CTkFont(size=11)).pack(side="right", padx=(5, 0))
+        else:
+            del_btn = ctk.CTkButton(row, text="×", width=24, height=22,
+                                    fg_color="transparent",
+                                    hover_color="#FF4444",
+                                    font=ctk.CTkFont(size=14),
+                                    command=lambda i=idx: self._remove_pkg(i))
+            del_btn.pack(side="right")
+            self._controls.append(del_btn)
 
     # ------------------------------------------------------------------
-    # common
+    # persistence
     # ------------------------------------------------------------------
 
-    def set_plugin_dir(self, d: str) -> None:
-        self._plugin_dir = d
+    def set_plugin_dir(self, d: str, pm: Optional[ProjectManager] = None) -> None:
+        if pm:
+            self._pm = pm
+        self._set_enabled(True)
+        if self._pm:
+            self._pkgs = self._pm.read_deps()
+            self._refresh_list()
 
-    def _clear_vendor_if_needed(self) -> None:
-        if not self._clear_vendor_var.get():
+    def _auto_save(self) -> None:
+        if not self._pm:
             return
-        vendor_dir = Path(self._plugin_dir) / "vendor"
-        if vendor_dir.is_dir():
-            shutil.rmtree(vendor_dir)
-            self._log_line("已清空 vendor/ 目录")
+        self._pm.write_deps(self._pkgs)
 
-    def _on_pkg_focus_in(self, event: Any = None) -> None:
-        if self._pkg_placeholder_active:
-            self._pkg_text.delete("1.0", "end")
-            self._pkg_text.configure(text_color=("black", "white"))
-            self._pkg_placeholder_active = False
-
-    def _on_pkg_focus_out(self, event: Any = None) -> None:
-        content = self._pkg_text.get("1.0", "end").strip()
-        if not content:
-            self._pkg_text.insert("1.0", self._pkg_placeholder)
-            self._pkg_text.configure(text_color="gray")
-            self._pkg_placeholder_active = True
-
-    def _log_line(self, msg: str) -> None:
-        self._log.configure(state="normal")
-        self._log.insert("end", msg + "\n")
-        self._log.see("end")
-        self._log.configure(state="disabled")
-        self.update_idletasks()
-
-    def _start_pack(self) -> None:
-        if self._running:
-            return
-
-        if not self._plugin_dir:
-            if hasattr(self, '_dir_label'):
-                self._dir_label.configure(text="请先选择插件目录", text_color="red")
-            if hasattr(self, '_dir_path_frame'):
-                self._dir_path_frame.configure(border_width=2, border_color="red")
-            return
-
-        self._running = True
-        self._start_btn.configure(text="打包中...", state="disabled")
-        self._log.delete("1.0", "end")
-
-        lang = self._lang_var.get()
-        if lang == "Python":
-            self._start_pack_python()
-        else:
-            self._start_pack_others()
-
-    def _start_pack_python(self) -> None:
-        if self._pkg_placeholder_active:
-            pkgs: list[str] = []
-        else:
-            raw = self._pkg_text.get("1.0", "end").strip()
-            pkgs = [p.strip() for p in raw.replace(",", "\n").split("\n") if p.strip()]
-
-        # auto-include dghub-sdk if checkbox is checked
-        if self._include_sdk_var.get() and "dghub_sdk" not in pkgs:
-            pkgs.append("dghub_sdk")
-
-        # check for base deps — log and skip, don't block
-        base_deps = [p for p in pkgs if is_dghub_base_dep(p)]
-        if base_deps:
-            self._log_line(
-                f"[跳过] 以下包是 DGHub 已提供的基础依赖，无需 vendor:"
-                f" {', '.join(base_deps)}")
-
-        # zero-pack: force create an empty vendor/ if option is checked
-        if not pkgs:
-            self._handle_zero_pack()
-            return
-
-        self._log_line(f"开始打包 {len(pkgs)} 个依赖到 vendor/ ...")
-
-        method = self._method_var.get()
-        vendor_dir = Path(self._plugin_dir) / "vendor"
-
-        self._clear_vendor_if_needed()
-
-        def task() -> None:
-            results = pack_dependencies(
-                pkgs, vendor_dir, method=method,
-                progress_callback=self._log_line,
-            )
-            success = sum(1 for v in results.values() if v)
-            total = len(results)
-            self._log_line(
-                f"\n{'='*40}\n打包完成: {success}/{total} 成功"
-            )
-            self._finish_pack()
-
-        threading.Thread(target=task, daemon=True).start()
-
-    def _start_pack_others(self) -> None:
-        if not self._vendor_files:
-            self._handle_zero_pack()
-            return
-
-        self._log_line(f"开始复制 {len(self._vendor_files)} 个文件/文件夹到 vendor/ ...")
-        vendor_dir = Path(self._plugin_dir) / "vendor"
-        plugin_dir = Path(self._plugin_dir)
-        files_copy = list(self._vendor_files)
-
-        self._clear_vendor_if_needed()
-
-        def task() -> None:
-            results = copy_files_to_vendor(
-                files_copy, vendor_dir, plugin_dir,
-                progress_callback=self._log_line,
-            )
-            success = sum(1 for v in results.values() if v)
-            total = len(results)
-            self._log_line(
-                f"\n{'='*40}\n打包完成: {success}/{total} 成功"
-            )
-            self._finish_pack()
-
-        threading.Thread(target=task, daemon=True).start()
-
-    def _handle_zero_pack(self) -> None:
-        if self._force_vendor_var.get():
-            (Path(self._plugin_dir) / "vendor").mkdir(exist_ok=True)
-            self._log_line("零包模式: 已创建空的 vendor/ 目录")
-        else:
-            self._log_line("零包模式: 跳过 vendor/ 目录")
-        self._log_line(f"\n{'='*40}\n打包完成: 0/0 成功")
-        self._finish_pack()
-
-    def _finish_pack(self) -> None:
-        self._running = False
-        self._start_btn.configure(text="开始打包", state="normal")
+    def get_packages(self) -> list[str]:
+        """Return declared packages, including dghub-sdk."""
+        return list(self._pkgs)

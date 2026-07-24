@@ -9,6 +9,7 @@ from typing import Any, Optional
 import customtkinter as ctk
 
 from manifest_validator import VALID_FIELD_TYPES, validate_manifest
+from project_manager import ProjectManager
 
 FIELD_TYPE_LABELS: dict[str, str] = {
     "bool": "开关 (bool)",
@@ -37,6 +38,8 @@ class ManifestTab(ctk.CTkFrame):
         self._plugin_dir: Optional[str] = None
         self._controls: list[ctk.CTkBaseClass] = []
         self._field_errors: dict[str, str] = {}
+        self._pm: Optional[ProjectManager] = None
+        self._auto_save_enabled = False
 
         self._build_ui()
         self._set_enabled(False)
@@ -119,11 +122,6 @@ class ManifestTab(ctk.CTkFrame):
         bottom.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
         bottom.grid_columnconfigure(0, weight=1)
 
-        self._save_btn = ctk.CTkButton(bottom, text="保存 manifest.json",
-                      command=self._save_manifest, width=150)
-        self._save_btn.pack(side="right", padx=5)
-        self._controls.append(self._save_btn)
-
         self._error_label = ctk.CTkLabel(bottom, text="", text_color="red")
         self._error_label.pack(side="right", padx=5)
 
@@ -138,20 +136,24 @@ class ManifestTab(ctk.CTkFrame):
                      font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=10, pady=(10, 5))
 
         self._fields: dict[str, Any] = {}
-        for key, label, placeholder in [
-            ("id", "插件 ID", "my_plugin (小写字母开头)"),
-            ("name", "插件名称", "我的插件"),
-            ("version", "版本号", "0.1.0"),
-            ("author", "作者 (可选)", ""),
-            ("description", "描述 (可选)", "一句话简介"),
-            ("homepage", "主页 (可选)", "https://..."),
-            ("entry", "入口文件 (可选)", "main.py"),
+        for key, label, placeholder, required in [
+            ("id", "插件 ID", "my_plugin (小写字母开头)", True),
+            ("name", "插件名称", "我的插件", True),
+            ("version", "版本号", "0.1.0", True),
+            ("author", "作者", "", False),
+            ("description", "描述", "一句话简介", False),
+            ("homepage", "主页", "https://...", False),
         ]:
             row = ctk.CTkFrame(frame, fg_color="transparent")
             row.pack(fill="x", padx=10, pady=2)
             row.grid_columnconfigure(0, weight=0, minsize=100)
             row.grid_columnconfigure(1, weight=1)
-            ctk.CTkLabel(row, text=label, anchor="w").grid(row=0, column=0, sticky="w")
+            label_frame = ctk.CTkFrame(row, fg_color="transparent")
+            label_frame.grid(row=0, column=0, sticky="w")
+            ctk.CTkLabel(label_frame, text=label, anchor="w").pack(side="left")
+            if required:
+                ctk.CTkLabel(label_frame, text="*", text_color="red",
+                             font=ctk.CTkFont(size=14)).pack(side="left")
             widget: Any = ctk.CTkEntry(row, placeholder_text=placeholder)
             widget.grid(row=0, column=1, sticky="ew", padx=(5, 0))
             widget.bind("<KeyRelease>",
@@ -166,6 +168,7 @@ class ManifestTab(ctk.CTkFrame):
         if isinstance(widget, ctk.CTkEntry):
             widget.configure(border_width=0)
         self._refresh_preview()
+        self._auto_save()
 
     def _on_field_focusin(self, key: str) -> None:
         """Clear error text when the user focuses on a field."""
@@ -951,23 +954,17 @@ class ManifestTab(ctk.CTkFrame):
     # directory selection
     # ------------------------------------------------------------------
 
-    def set_plugin_dir(self, d: str) -> None:
-        """Set plugin directory from shared picker and try to load manifest."""
+    def set_plugin_dir(self, d: str, pm: Optional[ProjectManager] = None) -> None:
+        """Set plugin directory and load manifest from project manager."""
+        if pm:
+            self._pm = pm
         self._set_enabled(True)
         self._plugin_dir = d
-        # try to load existing manifest
-        manifest_path = Path(d) / "manifest.json"
-        if manifest_path.is_file():
-            try:
-                with open(manifest_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                self._load_manifest(data)
-            except (json.JSONDecodeError, Exception) as exc:
-                if hasattr(self, '_dir_label'):
-                    self._dir_label.configure(text=f"manifest.json 解析失败",
-                                             text_color="red")
-                if hasattr(self, '_dir_path_frame'):
-                    self._dir_path_frame.configure(border_width=2, border_color="red")
+
+        if self._pm:
+            data = self._pm.read_manifest()
+            self._load_manifest(data)
+            self._auto_save_enabled = True
 
     # ------------------------------------------------------------------
     # load / save
@@ -1070,41 +1067,12 @@ class ManifestTab(ctk.CTkFrame):
                     self._highlight_field(field_key, err)
                     break
 
-    def _save_manifest(self) -> None:
-        self._clear_field_borders()
-
-        if not self._plugin_dir:
-            self._error_label.configure(text="请先选择插件目录", text_color="red")
+    def _auto_save(self) -> None:
+        """Write current form state to project manager (no-op until enabled)."""
+        if not self._auto_save_enabled or not self._pm:
             return
-
         data = self._build_manifest()
-        if not data.get("id") or not data.get("name") or not data.get("version"):
-            self._error_label.configure(text="")
-            if not data.get("id"):
-                self._highlight_field("id", "请填写插件 ID")
-            if not data.get("name"):
-                self._highlight_field("name", "请填写插件名称")
-            if not data.get("version"):
-                self._highlight_field("version", "请填写版本号")
-            return
-
-        errors = validate_manifest(data)
-        if errors:
-            self._error_label.configure(text="")
-            self._highlight_errors_from_validation(errors)
-            return
-
-        self._error_label.configure(text="")
-
-        path = Path(self._plugin_dir) / "manifest.json"
-        try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            self._error_label.configure(text="保存成功", text_color="green")
-        except Exception as exc:
-            self._error_label.configure(text=f"保存失败: {exc}", text_color="red")
-
-        self._refresh_preview()
+        self._pm.write_manifest(data)
 
     # ------------------------------------------------------------------
     # preview
@@ -1112,6 +1080,7 @@ class ManifestTab(ctk.CTkFrame):
 
     def _refresh_preview(self) -> None:
         data = self._build_manifest()
+        self._auto_save()
         text = json.dumps(data, ensure_ascii=False, indent=2)
         self._preview.configure(state="normal")
         self._preview._textbox.configure(state="normal")
