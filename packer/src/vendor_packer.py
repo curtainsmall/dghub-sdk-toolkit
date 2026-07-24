@@ -3,7 +3,9 @@
 Only method: copy from local site-packages.
 """
 
+import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Callable, Optional
@@ -58,6 +60,28 @@ def _find_site_packages(package_name: str) -> Optional[Path]:
         cand_file = sp_path / f"{norm_underscore}.py"
         if cand_file.exists():
             return cand_file
+
+    # frozen (PyInstaller) fallback: query system Python
+    if getattr(sys, "frozen", False):
+        # convert dashes to underscores for valid Python import
+        py_name = package_name.replace("-", "_").replace(" ", "_")
+        for py in ["python", "python3"]:
+            try:
+                result = subprocess.run(
+                    [py, "-c",
+                     f"import {py_name}; print({py_name}.__file__)"],
+                    capture_output=True, text=True, timeout=5,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                )
+                if result.returncode == 0:
+                    # take last line (package may print banner on import)
+                    lines = result.stdout.strip().splitlines()
+                    p = Path(lines[-1].strip()) if lines else None
+                    if p:
+                        return p.parent if p.name == "__init__.py" else p.parent
+            except Exception:
+                continue
+
     return None
 
 

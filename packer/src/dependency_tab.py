@@ -76,6 +76,12 @@ class DependencyTab(ctk.CTkFrame):
                      font=ctk.CTkFont(size=11), text_color="gray").grid(
             row=2, column=1, sticky="nw", padx=10, pady=5)
 
+        # include dghub-sdk checkbox
+        self._include_sdk_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(self._python_frame, text="包含 dghub-sdk",
+                        variable=self._include_sdk_var).grid(
+            row=3, column=0, sticky="w", padx=5, pady=(0, 5))
+
         # ============ Others mode ============
         self._others_frame = ctk.CTkFrame(input_frame, fg_color="transparent")
         self._others_frame.grid(row=1, column=0, columnspan=2, sticky="nsew")
@@ -239,6 +245,10 @@ class DependencyTab(ctk.CTkFrame):
         else:
             raw = self._pkg_text.get("1.0", "end").strip()
             pkgs = [p.strip() for p in raw.replace(",", "\n").split("\n") if p.strip()]
+
+        # auto-include dghub-sdk if checkbox is checked
+        if self._include_sdk_var.get() and "dghub_sdk" not in pkgs:
+            pkgs.append("dghub_sdk")
 
         # check for base deps
         base_deps = [p for p in pkgs if is_dghub_base_dep(p)]
