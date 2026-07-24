@@ -55,6 +55,7 @@ def main() -> int:
     print("Building DGHub Plugin Packer with PyInstaller...")
 
     src_dir = ROOT / "src"
+    sdk_dir = ROOT.parent / "sdk" / "python"
 
     cmd = [
         sys.executable, "-m", "PyInstaller",
@@ -65,6 +66,7 @@ def main() -> int:
         "--workpath", str(ROOT / "cache" / "build_tmp"),
         "--specpath", str(ROOT / "cache"),
         "--paths", str(src_dir),
+        "--paths", str(sdk_dir),
         "--hidden-import", "app",
         "--hidden-import", "manifest_tab",
         "--hidden-import", "dependency_tab",
@@ -73,6 +75,7 @@ def main() -> int:
         "--hidden-import", "_version",
         "--hidden-import", "manifest_validator",
         "--hidden-import", "vendor_packer",
+        "--add-data", f"{sdk_dir / 'dghub_sdk'}{os.pathsep}dghub_sdk",
         str(src_dir / "main.py"),
     ]
 

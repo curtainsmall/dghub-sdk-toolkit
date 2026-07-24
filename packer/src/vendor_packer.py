@@ -32,12 +32,7 @@ def is_dghub_base_dep(package_name: str) -> bool:
 
 def _is_stdlib(package_name: str) -> bool:
     """Return True if the package is part of Python's standard library."""
-    import importlib.util
-    spec = importlib.util.find_spec(package_name)
-    return spec is not None and (
-        "site-packages" not in (spec.origin or "")
-        and "dist-packages" not in (spec.origin or "")
-    )
+    return package_name in sys.stdlib_module_names
 
 
 def _should_skip(package_name: str) -> Optional[str]:
