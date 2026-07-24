@@ -24,18 +24,20 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
+        working-directory: packer
 
       - name: Build with PyInstaller
         run: |
           python build_exe.py
         env:
           CI_VERSION_TAG: ${{ github.ref_name }}
+        working-directory: packer
 
       - name: Upload exe as workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: DGHubPluginPacker-${{ github.ref_name }}
-          path: DGHubPluginPacker.exe
+          path: packer/bin/DGHubPluginPacker.exe
 
   build-sdk:
     runs-on: ubuntu-latest
@@ -66,3 +68,22 @@ jobs:
         with:
           name: dghub-sdk-${{ github.ref_name }}
           path: sdk/python/dist/*
+
+  release:
+    needs: [build-packer, build-sdk]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-files
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: DGHub SDK Toolkit ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: release-files/*
