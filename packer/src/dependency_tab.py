@@ -71,17 +71,10 @@ class DependencyTab(ctk.CTkFrame):
         self._pkg_text.bind("<FocusIn>", self._on_pkg_focus_in)
         self._pkg_text.bind("<FocusOut>", self._on_pkg_focus_out)
 
-        # method
-        method_frame = ctk.CTkFrame(self._python_frame, fg_color="transparent")
-        method_frame.grid(row=2, column=1, sticky="nw", padx=10, pady=5)
-        ctk.CTkLabel(method_frame, text="打包方式:").pack(anchor="w")
-        self._method_var = ctk.StringVar(value="auto")
-        methods = [("自动 (先找本地安装，没有则 pip 下载)", "auto"),
-                   ("从 site-packages 复制", "site-packages"),
-                   ("从 pip 下载", "pip")]
-        for text, val in methods:
-            ctk.CTkRadioButton(method_frame, text=text, variable=self._method_var,
-                               value=val).pack(anchor="w", pady=2)
+        # method — only site-packages, no selector needed
+        ctk.CTkLabel(self._python_frame, text="打包方式: 从 site-packages 复制",
+                     font=ctk.CTkFont(size=11), text_color="gray").grid(
+            row=2, column=1, sticky="nw", padx=10, pady=5)
 
         # ============ Others mode ============
         self._others_frame = ctk.CTkFrame(input_frame, fg_color="transparent")
@@ -265,14 +258,13 @@ class DependencyTab(ctk.CTkFrame):
 
         self._log_line(f"开始打包 {len(pkgs)} 个依赖到 vendor/ ...")
 
-        method = self._method_var.get()
         vendor_dir = Path(self._plugin_dir) / "vendor"
 
         self._clear_vendor_if_needed()
 
         def task() -> None:
             results = pack_dependencies(
-                pkgs, vendor_dir, method=method,
+                pkgs, vendor_dir,
                 progress_callback=self._log_line,
             )
             success = sum(1 for v in results.values() if v)
