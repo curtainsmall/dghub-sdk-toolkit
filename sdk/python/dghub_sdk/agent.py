@@ -39,6 +39,25 @@ class Agent:
         on_stop: Callable[[str], None] | None = None,
         on_ping: Callable[[float], None] | None = None,
     ):
+        """Initialize the Agent.
+
+        Args:
+            manifest_dir: Directory containing ``manifest.json``. Defaults to
+                the caller's file directory.
+            max_retries: Maximum WebSocket connection retry attempts.
+            send_timeout: Optional timeout (seconds) for each send operation.
+                ``None`` means fire-and-forget (no blocking wait).
+            on_ready: Called after successful handshake with hello_ack data.
+            on_config: Called with the full config dict (pushed once after
+                handshake). Signature: ``(config: dict) -> None``.
+            on_config_changed: Called when a single config key changes.
+                Signature: ``(key: str, value: Any) -> None``.
+            on_device_info: Called on device state changes.
+                Signature: ``(connected, device_type, max_a, max_b) -> None``.
+            on_stop: Called when the server requests plugin shutdown.
+                Signature: ``(reason: str) -> None``.
+            on_ping: Called on server ping with timestamp.
+        """
         # --- manifest resolution ---
         if manifest_dir is None:
             caller_file = sys._getframe(1).f_code.co_filename
@@ -150,6 +169,21 @@ class Agent:
         label: str | None = None,
         username: str | None = None,
     ) -> None:
+        """Send a strength/waveform trigger to the device.
+
+        Args:
+            action: What to affect — strength, waveform, or both.
+            delta_pct: Strength change relative to baseline (0–100).
+            strength_mode: ROLLBACK (temporary) or PERMANENT (persisted).
+            duration_s: Trigger duration in seconds.
+            preset: Waveform preset name (required if action includes waveform).
+            channel: Target channel (a / b / both).
+            label: Optional display label for the trigger event.
+            username: Optional username associated with this trigger.
+
+        Raises:
+            ValueError: If action includes waveform but preset is empty.
+        """
         raw = Codec.trigger(action, delta_pct, strength_mode,
                             duration_s, preset, channel, label, username)
         self._schedule_send(raw)
@@ -163,30 +197,79 @@ class Agent:
         duration: float = 1.0,
         event_id: str | None = None,
     ) -> None:
+        """Send a one-time named event.
+
+        Args:
+            label: Event category label (required).
+            name: Event display name (required).
+            username: Optional username who triggered the event.
+            strength_pct: Optional strength hint (0–100).
+            duration: Event duration in seconds.
+            event_id: Optional deduplication ID.
+        """
         raw = Codec.event(label, name, username, strength_pct, duration, event_id)
         self._schedule_send(raw)
 
     def send_pulse(self, preset: str, channel: Channel = Channel.BOTH) -> None:
+        """Send a waveform-only pulse (no strength change).
+
+        Args:
+            preset: Waveform preset name.
+            channel: Target channel.
+        """
         raw = Codec.pulse(preset, channel)
         self._schedule_send(raw)
 
     def send_strength(self, channel: Channel, pct: int) -> None:
+        """Set absolute strength for a channel.
+
+        Args:
+            channel: Target channel.
+            pct: Absolute strength percentage (0–100).
+        """
         raw = Codec.set_strength(channel, pct)
         self._schedule_send(raw)
 
     def send_adjust_strength(self, channel: Channel, delta_pct: int) -> None:
+        """Adjust strength by a relative delta.
+
+        Args:
+            channel: Target channel.
+            delta_pct: Relative change (-100 to 100).
+        """
         raw = Codec.adjust_strength(channel, delta_pct)
         self._schedule_send(raw)
 
     def send_status(self, fields: dict[str, Any]) -> None:
+        """Report plugin status to the server (e.g. startup_check results).
+
+        Args:
+            fields: Key-value pairs of status data. Typically includes
+                ``startup_check`` with a ``CheckState`` value.
+        """
         raw = Codec.status(fields)
         self._schedule_send(raw)
 
     def send_log(self, level: LogLevel, message: str) -> None:
+        """Send a log message to the server for display in the DGHub console.
+
+        Args:
+            level: Severity level (debug/info/warning/error).
+            message: Log message text.
+        """
         raw = Codec.log(level, message)
         self._schedule_send(raw)
 
     def send_set_config(self, key: str, value: Any) -> None:
+        """Persist a plugin-owned config key to the server.
+
+        Use this to save runtime state that should survive restarts.
+        Do not write server-reserved keys (e.g. ``target_id``).
+
+        Args:
+            key: Config key name.
+            value: Value to persist (must be JSON-serializable).
+        """
         raw = Codec.set_config(key, value)
         self._schedule_send(raw)
 
