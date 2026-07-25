@@ -1,11 +1,13 @@
 """Build DGHub Plugin Packer as a single-file exe.
 
 Usage:
-    python build_exe.py
+    python build_exe.py [--version X.Y.Z]
     # or after pip install -r requirements.txt
 """
 
+import argparse
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +17,19 @@ ROOT = Path(__file__).resolve().parent
 TAG_PREFIX = "v"
 
 _VERSION_PATH = ROOT / "src" / "_version.py"
+
+_SEMVER_RE = re.compile(
+    r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$"
+)
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build Packer exe")
+    parser.add_argument(
+        "--version", default="", metavar="X.Y.Z",
+        help="强制指定构建版本号（SemVer），跳过 git tag 读取",
+    )
+    return parser.parse_args()
 
 
 def _get_tag() -> str:
@@ -36,14 +51,17 @@ def _get_tag() -> str:
         return ""
 
 
-def _write_version() -> None:
-    """从 tag 提取版本号写入 _version.py。
+def _write_version(override: str = "") -> None:
+    """写入版本号到 _version.py。
 
-    tag 格式: v1.0.0  →  写入 1.0.0
-    无 tag 时写入空字符串。
+    优先使用 override（--version 参数）；否则从 tag 提取：
+    tag 格式: v1.0.0  →  写入 1.0.0，无 tag 时写入空字符串。
     """
-    tag = _get_tag()
-    version = tag[len(TAG_PREFIX):] if tag.startswith(TAG_PREFIX) else ""
+    if override:
+        version = override
+    else:
+        tag = _get_tag()
+        version = tag[len(TAG_PREFIX):] if tag.startswith(TAG_PREFIX) else ""
     _VERSION_PATH.write_text(
         f'"""Auto-generated version. Do not edit."""\n__version__ = "{version}"\n',
         encoding="utf-8",
@@ -57,7 +75,11 @@ def _reset_version() -> None:
 
 
 def main() -> int:
-    _write_version()
+    args = _parse_args()
+    if args.version and not _SEMVER_RE.match(args.version):
+        print(f"Error: invalid SemVer version: {args.version}")
+        return 1
+    _write_version(args.version)
     try:
         return _build()
     finally:
