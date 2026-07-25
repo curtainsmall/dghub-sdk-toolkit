@@ -26,7 +26,23 @@ DGHUB_BASE_DEPS: frozenset = frozenset({
 
 def is_dghub_base_dep(package_name: str) -> bool:
     """Return True if the package is provided by DGHub runtime."""
-    return package_name.strip().lower() in DGHUB_BASE_DEPS
+    name = package_name.strip().lower()
+    return name in DGHUB_BASE_DEPS
+
+
+def _is_stdlib(package_name: str) -> bool:
+    """Return True if the package is part of Python's standard library."""
+    return package_name in sys.stdlib_module_names
+
+
+def _should_skip(package_name: str) -> Optional[str]:
+    """Return a skip reason if the package should be skipped, else None."""
+    name = package_name.strip().lower()
+    if name in DGHUB_BASE_DEPS:
+        return "DGHub 基础依赖"
+    if _is_stdlib(package_name):
+        return "Python 标准库"
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +81,38 @@ def _find_site_packages(package_name: str) -> Optional[Path]:
         cand_file = sp_path / f"{norm_underscore}.py"
         if cand_file.exists():
             return cand_file
+
+    # frozen (PyInstaller) fallback: query system Python via launcher
+    if getattr(sys, "frozen", False):
+        py_name = package_name.replace("-", "_").replace(" ", "_")
+        # try py launcher first (Windows), then python
+        for cmd in [["py", "-3"], ["py"], ["python"], ["python3"]]:
+            try:
+                result = subprocess.run(
+                    cmd + ["-c",
+                     f"import {py_name}; print({py_name}.__file__)"],
+                    capture_output=True, text=True, timeout=5,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                )
+                if result.returncode == 0:
+                    # take last line (package may print banner on import)
+                    lines = result.stdout.strip().splitlines()
+                    p = Path(lines[-1].strip()) if lines else None
+                    if p:
+                        return p.parent if p.name == "__init__.py" else p.parent
+            except Exception:
+                continue
+
     return None
+
+
+def _ignore_vendor_and_cache(dir: str, contents: list[str]) -> set[str]:
+    """Ignore __pycache__, *.pyc, and vendor/ to avoid recursive nesting."""
+    ignored: set[str] = set()
+    for name in contents:
+        if name in ("__pycache__", "vendor") or name.endswith(".pyc"):
+            ignored.add(name)
+    return ignored
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +141,7 @@ def copy_from_site_packages(
 
     try:
         if src.is_dir():
-            shutil.copytree(src, dst, ignore=shutil.ignored_patterns("__pycache__", "*.pyc"))
+            shutil.copytree(src, dst, ignore=_ignore_vendor_and_cache)
         else:
             shutil.copy2(src, dst)
         if progress_callback:
@@ -104,6 +151,29 @@ def copy_from_site_packages(
         if progress_callback:
             progress_callback(f"[错误] 复制 '{package_name}' 失败: {exc}")
         return False
+
+
+_NO_WINDOW_FLAG = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+
+def _get_python_exe() -> list[str]:
+    """Return [python_exe] suitable for subprocess, handles frozen exe."""
+    if not getattr(sys, "frozen", False):
+        return [sys.executable]
+    for cmd in [["py", "-3"], ["py"], ["python"], ["python3"]]:
+        try:
+            result = subprocess.run(
+                cmd + ["-c", "import sys; print(sys.executable)"],
+                capture_output=True, text=True, timeout=5,
+                creationflags=_NO_WINDOW_FLAG,
+            )
+            if result.returncode == 0:
+                stripped = result.stdout.strip()
+                if stripped:
+                    return [stripped]
+        except Exception:
+            continue
+    return [sys.executable]  # fallback
 
 
 def pip_download_package(
@@ -118,9 +188,9 @@ def pip_download_package(
     norm = _normalise_name(package_name)
     with tempfile.TemporaryDirectory(prefix="dghub_packer_") as tmp:
         tmp_path = Path(tmp)
+        py_exe = _get_python_exe()
         # pip download
-        cmd = [
-            sys.executable, "-m", "pip", "download",
+        cmd = py_exe + ["-m", "pip", "download",
             "--no-deps",
             "--only-binary", ":all:",
             "-d", str(tmp_path),
@@ -133,6 +203,7 @@ def pip_download_package(
             result = subprocess.run(
                 cmd,
                 capture_output=True, text=True, timeout=120,
+                creationflags=_NO_WINDOW_FLAG,
             )
         except subprocess.TimeoutExpired:
             if progress_callback:
@@ -143,8 +214,7 @@ def pip_download_package(
             # fallback: try source distribution
             if progress_callback:
                 progress_callback(f"[重试] binary 失败，尝试 source 分发 ...")
-            cmd_src = [
-                sys.executable, "-m", "pip", "download",
+            cmd_src = py_exe + ["-m", "pip", "download",
                 "--no-deps",
                 "--no-binary", ":all:",
                 "-d", str(tmp_path),
@@ -153,6 +223,7 @@ def pip_download_package(
             try:
                 result = subprocess.run(
                     cmd_src, capture_output=True, text=True, timeout=120,
+                    creationflags=_NO_WINDOW_FLAG,
                 )
             except subprocess.TimeoutExpired:
                 if progress_callback:
@@ -197,7 +268,7 @@ def pip_download_package(
                 if pkg_dir.exists():
                     shutil.rmtree(pkg_dir)
                 shutil.copytree(src, pkg_dir,
-                                ignore=shutil.ignored_patterns("__pycache__", "*.pyc"))
+                                ignore=_ignore_vendor_and_cache)
                 if progress_callback:
                     progress_callback(f"[成功] 已下载并解压 '{norm}' → {pkg_dir}")
                 return True
@@ -206,7 +277,7 @@ def pip_download_package(
                     progress_callback(f"[失败] 无法在 wheel 中找到包目录 '{norm}'")
                 return False
 
-        elif downloaded.suffix == ".tar.gz":
+        elif downloaded.suffix == ".gz" and ".tar.gz" in downloaded.name:
             # extract source tarball
             with tarfile.open(downloaded, "r:gz") as tf:
                 tf.extractall(str(tmp_path))
@@ -221,7 +292,7 @@ def pip_download_package(
                 if pkg_dir.exists():
                     shutil.rmtree(pkg_dir)
                 shutil.copytree(sub_pkg, pkg_dir,
-                                ignore=shutil.ignored_patterns("__pycache__", "*.pyc"))
+                                ignore=_ignore_vendor_and_cache)
                 if progress_callback:
                     progress_callback(f"[成功] 已下载并解压 '{norm}' → {pkg_dir}")
                 return True
@@ -259,9 +330,11 @@ def pack_dependencies(
         if not name:
             continue
 
-        if is_dghub_base_dep(name):
+        skip_reason = _should_skip(name)
+        if skip_reason:
             if progress_callback:
-                progress_callback(f"[跳过] '{name}' 是 DGHub 基础依赖，无需 vendor")
+                progress_callback(
+                    f"[跳过] '{name}' 是 {skip_reason}，无需 vendor")
             results[name] = True
             continue
 
@@ -271,5 +344,63 @@ def pack_dependencies(
         if not ok and method in ("auto", "pip"):
             ok = pip_download_package(name, vendor_dir, progress_callback)
         results[name] = ok
+
+    return results
+
+
+def copy_files_to_vendor(
+    source_paths: list[str],
+    vendor_dir: Path,
+    plugin_dir: Path,
+    progress_callback: Optional[Callable[[str], None]] = None,
+) -> dict[str, bool]:
+    """Copy files/folders into vendor/ for non-Python projects.
+
+    Relative paths are resolved against plugin_dir.
+    Returns dict mapping each source path -> success (bool).
+    """
+    vendor_dir.mkdir(parents=True, exist_ok=True)
+    results: dict[str, bool] = {}
+
+    for src in source_paths:
+        src = src.strip()
+        if not src:
+            continue
+
+        src_path = Path(src)
+        if not src_path.is_absolute():
+            src_path = plugin_dir / src_path
+
+        if not src_path.exists():
+            if progress_callback:
+                progress_callback(f"[失败] 路径不存在: {src}")
+            results[src] = False
+            continue
+
+        dst = vendor_dir / src_path.name
+
+        # ── pre-validation ──────────────────────────────────────
+        # reject paths already inside vendor/ to prevent self-nesting
+        if vendor_dir in src_path.parents:
+            if progress_callback:
+                progress_callback(f"[跳过] '{src}' 已在 vendor/ 目录内，跳过以避免自嵌套")
+            results[src] = False
+            continue
+
+        try:
+            if src_path.is_dir():
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(src_path, dst,
+                                ignore=_ignore_vendor_and_cache)
+            else:
+                shutil.copy2(src_path, dst)
+            if progress_callback:
+                progress_callback(f"[成功] 已复制 '{src}' → {dst}")
+            results[src] = True
+        except Exception as exc:
+            if progress_callback:
+                progress_callback(f"[错误] 复制 '{src}' 失败: {exc}")
+            results[src] = False
 
     return results

@@ -1,48 +1,62 @@
-# DGHub Plugin Toolkit
+# DGHub SDK Toolkit
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/License-AGPLv3-green)
 
-[DGHub](http://dghub.top/) 插件开发辅助工具集。
+[DGHub](http://dghub.top/) 插件开发工具集，包含 Python SDK 和图形化打包工具。
 
-## DGHub Plugin Packer — 插件打包工具
+## SDK
 
-图形化桌面应用，帮助开发者创建、打包和分发 DGHub 插件。
+位于 `sdk/python/`，提供插件与 DGHub 主程序之间的 WebSocket 通信封装。
 
-### 功能
+- 自动连接与会话管理
+- 配置同步
+- 强度控制
+- 设备状态监听
 
-- **Manifest 编辑器** — 可视化编辑 manifest.json，包括config_schema，JSON 预览实时更新
-- **依赖打包** — 将第三方 Python 依赖打包到 `vendor/` 目录，支持自动检测、site-packages 复制、pip 下载三种方式
-- **Zip 导出** — 将插件目录导出为 `.zip` 分发包，可选包含 `vendor/`目录
+```python
+import dghub_sdk
+
+with dghub_sdk.Agent() as agent:
+    agent.on_config_changed = lambda key, value: print(key, value)
+    while True:
+        agent.poll()
+```
+
+详细用法参见 [SDK 使用指南](docs/sdk.md)。
+
+## Plugin Packer
+
+位于 `packer/`，图形化桌面应用，帮助开发者打包和分发 DGHub 插件。
+
+- Manifest 编辑器 — 可视化编辑 `manifest.json`
+- 依赖打包 — 将第三方 Python 包打包到 `vendor/`
+- 发布 — 导出 `.zip` 或构建为独立 `.exe`
 
 ### 下载
 
-从 [Releases](https://github.com/curtainsmall/DGHub-Plugin-Toolkit/releases) 下载 `DGHubPluginPacker.exe` 直接运行。
+从 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases) 下载 `DGHubPluginPacker.exe` 直接运行。
 
-### 使用
-
-1. **选择插件目录** — 点击顶部"选择目录"
-2. **编辑 Manifest** — 填写插件信息与配置项
-3. **打包依赖** — 输入包名，点击"开始打包"
-4. **导出 Zip** — 点击"导出 Zip"
-
-### 从源码构建
+### 从源码运行
 
 ```bash
-pip install -r requirements.txt
+pip install -r packer/requirements.txt
 
 # 运行
-python -m packer.main
+python -m packer.src.main
 
 # 打包为单文件 exe
-python build_exe.py
-# 产物: bin/DGHubPluginPacker.exe
+python packer/build_exe.py
 ```
+
+## Demo
+
+`demo/tetris/` — 俄罗斯方块示例插件，演示 SDK 集成与强度触发。
+
+## License
+
+AGPLv3 · 适用于 DGHub SDK v1
 
 ---
 
-## 关于
-
-本项目基于 AGPLv3 协议开源
-
-适用于 DGHub SDK v1
+**See Also:** [插件开发协议规范](docs/PLUGIN_DEVELOPMENT.md) · [Plugin Packer 指南](docs/packer.md)

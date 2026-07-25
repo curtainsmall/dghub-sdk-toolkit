@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dghub-sdk"
+version = "0.0.0"
+description = "DGHub SDK — runtime library for DGHub plugin development"
+requires-python = ">=3.11"
+license = {text = "AGPL-3.0-only"}
+authors = [{name = "curtainsmall"}]
+dependencies = [
+    "websockets>=13.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["dghub_sdk*"]

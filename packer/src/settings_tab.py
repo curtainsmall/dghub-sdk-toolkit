@@ -5,8 +5,12 @@ from typing import Any
 
 import customtkinter as ctk
 
-from ._version import __version__ as APP_VERSION
-GITHUB_URL = "https://github.com/curtainsmall/DGHub-Plugin-Toolkit"
+try:
+    from _version import __version__ as APP_VERSION
+except ImportError:
+    # 开发模式：_version.py 仅在构建期生成
+    APP_VERSION = "dev"
+GITHUB_URL = "https://github.com/curtainsmall/dghub-sdk-toolkit"
 DGHUB_URL = "http://dghub.top/"
 
 
@@ -33,7 +37,7 @@ class SettingsTab(ctk.CTkFrame):
             row=0, column=0, columnspan=2, sticky="w", padx=10, pady=(10, 5))
 
         labels = [
-            ("应用名称", "DGHub Plugin Toolkit — Packer"),
+            ("应用名称", "DGHub SDK Toolkit — Packer"),
             ("版本", APP_VERSION),
         ]
         for i, (k, v) in enumerate(labels, 1):
@@ -72,7 +76,7 @@ class SettingsTab(ctk.CTkFrame):
 
         ctk.CTkLabel(theme_frame, text="外观模式:").grid(
             row=1, column=0, sticky="w", padx=(10, 5), pady=10)
-        theme_menu = ctk.CTkOptionMenu(
+        theme_menu = ctk.CTkComboBox(
             theme_frame, values=["system", "light", "dark"],
             command=ctk.set_appearance_mode)
         theme_menu.grid(row=1, column=1, sticky="w", padx=5, pady=10)

@@ -5,14 +5,11 @@ Usage:
     # or after PyInstaller build: DGHubPluginPacker.exe
 """
 
-import os
+from pathlib import Path
 import sys
 
-# Ensure packer/ is importable (needed when running as script or PyInstaller exe)
-_pkg_dir = os.path.dirname(os.path.abspath(__file__))
-_parent_dir = os.path.dirname(_pkg_dir)
-if _parent_dir not in sys.path:
-    sys.path.insert(0, _parent_dir)
+# Ensure src/ is in path (auto for direct runs, needed for PyInstaller)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
 def main() -> None:
@@ -27,7 +24,7 @@ def main() -> None:
         import ctypes
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
 
-    from packer.app import App
+    from app import App
     app = App()
     app.mainloop()
 

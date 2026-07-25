@@ -1,18 +1,34 @@
+# Whitelist approach: ignore all, then un-ignore tracked content
 *
 
+# Root files
 !.gitignore
 !README.md
 !LICENSE
 
-!packer/
-!packer/**
-
+# Source directories
 !.github/
 !.github/**
+!packer/
+!packer/**
+!sdk/
+!sdk/**
+!demo/
+!demo/**
+!docs/
+!docs/**
 
-!build_exe.py
-!requirements.txt
+# Re-ignore build outputs
+packer/bin/
+packer/src/_version.py
+sdk/**/dist/
+demo/**/vendor/
+demo/**/*.zip
 
-# Re-ignore Python cache and build artifacts
+# Re-ignore generated & cache
 __pycache__/
-__pycache__/**
+*.pyc
+*.egg-info/
+cache/
+output/
+.dghub-sdk/
