@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .codec import Codec, CodecMessage
-from .enums import Action, Channel, DeviceType, LogLevel, OpCode, StrengthMode
+from .enums import Action, Channel, CheckState, DeviceType, LogLevel, OpCode, StrengthMode
 
 
 class Agent:
@@ -89,6 +89,10 @@ class Agent:
         self._plugin_id: str = ""
         self._connected = False
         self._stopped = False
+
+        # startup-check state
+        self._check_title: str = "Startup Check"
+        self._check_steps: dict[str, dict] = {}
 
         # queues (thread-safe)
         self._queue: queue.Queue[CodecMessage] = queue.Queue()
@@ -220,7 +224,7 @@ class Agent:
         raw = Codec.pulse(preset, channel)
         self._schedule_send(raw)
 
-    def send_strength(self, channel: Channel, pct: int) -> None:
+    def send_set_strength(self, channel: Channel, pct: int) -> None:
         """Set absolute strength for a channel.
 
         Args:
@@ -259,6 +263,67 @@ class Agent:
         """
         raw = Codec.log(level, message)
         self._schedule_send(raw)
+
+    def send_startup_check(
+        self,
+        key: str,
+        title: str,
+        state: CheckState,
+        *,
+        detail: str | None = None,
+        hint: str | None = None,
+        display_status: str | None = None,
+        dont_send: bool = False,
+    ) -> None:
+        """Update a startup-check step and optionally send the full state.
+
+        Maintains steps internally (keyed by ``key``). Each call upserts
+        the step. Unless ``dont_send=True``, immediately sends all steps.
+
+        Args:
+            key: Unique step identifier.
+            title: Human-readable step name.
+            state: Current check state.
+            detail: Optional status detail text.
+            hint: Optional user-facing hint.
+            display_status: Optionally set display_status in the same message.
+            dont_send: If True, only update internal state without sending.
+        """
+        step: dict[str, Any] = {"key": key, "title": title, "state": state.value}
+        if detail is not None:
+            step["detail"] = detail
+        if hint is not None:
+            step["hint"] = hint
+        self._check_steps[key] = step
+
+        if dont_send:
+            return
+
+        fields: dict[str, Any] = {}
+        if display_status is not None:
+            fields["display_status"] = display_status
+        fields["startup_check"] = {
+            "title": self._check_title,
+            "steps": list(self._check_steps.values()),
+        }
+        self.send_status(fields)
+
+    def set_startup_check_title(self, title: str) -> None:
+        """Set the startup-check panel title (does not send)."""
+        self._check_title = title
+
+    def send_display_status(self, text: str) -> None:
+        """Send a display_status update to the server."""
+        self.send_status({"display_status": text})
+
+    def send_status_field(self, key: str, value: Any) -> None:
+        """Send a single status field to the server.
+
+        Args:
+            key: Status field name.
+            value: Field value (must be JSON-serializable).
+        """
+        self.send_status({key: value})
 
     def send_set_config(self, key: str, value: Any) -> None:
         """Persist a plugin-owned config key to the server.

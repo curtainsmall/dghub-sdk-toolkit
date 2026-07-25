@@ -135,28 +135,51 @@ agent.send_trigger(
 
 ## 状态上报
 
-通过 `send_status` 向主程序报告插件运行状态，驱动前端状态卡片和启动检查面板：
+SDK 提供多个便捷方法上报插件状态：
+
+### send_startup_check —— 启动检查
+
+内部维护 steps 状态，每次调用更新或新增对应 step 并自动发送：
 
 ```python
-def send_status(self, fields: dict[str, Any]) -> None: ...
+from dghub_sdk import CheckState
+
+# 初始化时批量设置 steps（不发送）
+agent.send_startup_check("plugin", "插件连接", CheckState.IDLE, dont_send=True)
+agent.send_startup_check("game", "游戏连接", CheckState.IDLE, dont_send=True)
+# 最后一个调用触发发送
+agent.send_startup_check("device", "设备连接", CheckState.IDLE,
+                         display_status="初始化中")
+
+# 之后逐步更新，每次自动发送
+agent.send_startup_check("plugin", "插件连接", CheckState.OK, detail="已连接 DGHub")
+agent.send_startup_check("game", "游戏连接", CheckState.OK, detail="已连接",
+                         display_status="运行中")
 ```
 
-示例——启动检查：
-
-```python
-agent.send_status({
-    "display_status": "等待游戏连接",
-    "startup_check": {
-        "title": "我的插件",
-        "steps": [
-            {"key": "game", "title": "游戏连接",
-             "state": "pending", "detail": "未检测到游戏进程"},
-        ],
-    },
-})
-```
+面板标题默认为 `"Startup Check"`，可通过 `set_startup_check_title()` 修改。
 
 `state` 可选值定义在 `CheckState` 枚举中：`idle` / `pending` / `ok` / `warn` / `fail`。
+
+### send_display_status —— 显示状态
+
+```python
+agent.send_display_status("运行中")
+```
+
+### send_status_field —— 单字段上报
+
+```python
+agent.send_status_field("tick", 42)
+```
+
+### send_status —— 底层 API
+
+以上方法底层均调用 `send_status(fields: dict)`，可直接使用：
+
+```python
+agent.send_status({"custom_field": 42})
+```
 
 ---
 
