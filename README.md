@@ -49,6 +49,8 @@ python -m packer.src.main
 python packer/build_exe.py
 ```
 
+详细用法参见 [Plugin Packer 使用指南](docs/packer.md)。
+
 ## Demo
 
 `demo/tetris/` — 俄罗斯方块示例插件，演示 SDK 集成与强度触发。
@@ -59,4 +61,4 @@ AGPLv3 · 适用于 DGHub SDK v1
 
 ---
 
-**See Also:** [插件开发协议规范](docs/PLUGIN_DEVELOPMENT.md) · [Plugin Packer 指南](docs/packer.md)
+**另见：**[插件开发协议规范](docs/PLUGIN_DEVELOPMENT.md)

@@ -1,16 +1,17 @@
 """Build DGHub SDK wheel/sdist from git tag.
 
 Usage:
-    python build_sdk.py
+    python build_sdk.py [--version X.Y.Z]
     # CI 会自动传入 CI_VERSION_TAG 环境变量
 
 构建流程：
-  1. 读取 v* tag 提取版本号
+  1. 读取 v* tag 提取版本号（或用 --version 强制指定）
   2. 替换 pyproject.toml 中的占位版本
   3. python -m build 生成 wheel + sdist
   4. 恢复 pyproject.toml 占位版本
 """
 
+import argparse
 import os
 import re
 import subprocess
@@ -20,6 +21,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 PYPROJECT = ROOT / "pyproject.toml"
 TAG_PREFIX = "v"
+
+_SEMVER_RE = re.compile(
+    r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$"
+)
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build SDK wheel/sdist")
+    parser.add_argument(
+        "--version", default="", metavar="X.Y.Z",
+        help="强制指定构建版本号（SemVer），跳过 git tag 读取",
+    )
+    return parser.parse_args()
 
 
 def _get_tag() -> str:
@@ -47,7 +61,7 @@ def _patch_version(version: str) -> None:
     content = re.sub(
         r'^version = "0\.0\.0"',
         f'version = "{version}"',
-        content, count=1,
+        content, count=1, flags=re.MULTILINE,
     )
     PYPROJECT.write_text(content, encoding="utf-8")
     print(f"  Patched pyproject.toml → version = {version}")
@@ -59,7 +73,7 @@ def _restore_version() -> None:
     content = re.sub(
         r'^version = "[^"]+"',
         'version = "0.0.0"',
-        content, count=1,
+        content, count=1, flags=re.MULTILINE,
     )
     PYPROJECT.write_text(content, encoding="utf-8")
     print("  Restored pyproject.toml → version = 0.0.0")
@@ -74,13 +88,29 @@ def _build() -> int:
     return result.returncode
 
 
+def _clean_egg_info() -> None:
+    """清理构建产生的 egg-info 目录（可再生的元数据缓存）。"""
+    import shutil
+    for p in ROOT.glob("*.egg-info"):
+        if p.is_dir():
+            shutil.rmtree(p, ignore_errors=True)
+            print(f"  Removed directory: {p.name}")
+
+
 def main() -> int:
-    tag = _get_tag()
-    if tag.startswith(TAG_PREFIX):
-        version = tag[len(TAG_PREFIX):]
+    args = _parse_args()
+    if args.version:
+        if not _SEMVER_RE.match(args.version):
+            print(f"Error: invalid SemVer version: {args.version}")
+            return 1
+        version = args.version
     else:
-        version = "0.0.0-dev"
-        print(f"Warning: no {TAG_PREFIX}* tag found, using {version}")
+        tag = _get_tag()
+        if tag.startswith(TAG_PREFIX):
+            version = tag[len(TAG_PREFIX):]
+        else:
+            version = "0.0.0-dev"
+            print(f"Warning: no {TAG_PREFIX}* tag found, using {version}")
 
     print(f"SDK Version: {version}")
     _patch_version(version)
@@ -88,6 +118,7 @@ def main() -> int:
         ret = _build()
     finally:
         _restore_version()
+        _clean_egg_info()
 
     if ret == 0:
         print()
