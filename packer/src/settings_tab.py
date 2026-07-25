@@ -5,7 +5,11 @@ from typing import Any
 
 import customtkinter as ctk
 
-from _version import __version__ as APP_VERSION
+try:
+    from _version import __version__ as APP_VERSION
+except ImportError:
+    # 开发模式：_version.py 仅在构建期生成
+    APP_VERSION = "dev"
 GITHUB_URL = "https://github.com/curtainsmall/dghub-sdk-toolkit"
 DGHUB_URL = "http://dghub.top/"
 

@@ -14,6 +14,8 @@ ROOT = Path(__file__).resolve().parent
 
 TAG_PREFIX = "v"
 
+_VERSION_PATH = ROOT / "src" / "_version.py"
+
 
 def _get_tag() -> str:
     """获取当前版本 tag。
@@ -42,16 +44,27 @@ def _write_version() -> None:
     """
     tag = _get_tag()
     version = tag[len(TAG_PREFIX):] if tag.startswith(TAG_PREFIX) else ""
-    version_path = ROOT / "src" / "_version.py"
-    version_path.write_text(
+    _VERSION_PATH.write_text(
         f'"""Auto-generated version. Do not edit."""\n__version__ = "{version}"\n',
         encoding="utf-8",
     )
     print(f"Version: {version or '(no version)'}")
 
 
+def _reset_version() -> None:
+    """构建结束后删除 _version.py，该文件仅在构建期存在。"""
+    _VERSION_PATH.unlink(missing_ok=True)
+
+
 def main() -> int:
     _write_version()
+    try:
+        return _build()
+    finally:
+        _reset_version()
+
+
+def _build() -> int:
     print("Building DGHub Plugin Packer with PyInstaller...")
 
     src_dir = ROOT / "src"
