@@ -506,11 +506,12 @@ class ManifestTab(ctk.CTkFrame):
             nonlocal row
             frame = ctk.CTkFrame(win, fg_color="transparent")
             frame.grid(row=row, column=0, columnspan=2, sticky="ew", padx=10, pady=pady)
+            frame.grid_columnconfigure(0, minsize=85)
             frame.grid_columnconfigure(1, weight=1)
             # Label area — supports red * for required fields
             label_area = ctk.CTkFrame(frame, fg_color="transparent")
             label_area.grid(row=0, column=0, sticky="w")
-            ctk.CTkLabel(label_area, text=label, anchor="w", width=80).pack(side="left")
+            ctk.CTkLabel(label_area, text=label, anchor="w").pack(side="left")
             if required:
                 ctk.CTkLabel(label_area, text="*", text_color="red",
                              font=ctk.CTkFont(size=12)).pack(side="left")
@@ -549,10 +550,10 @@ class ManifestTab(ctk.CTkFrame):
             return frame
 
         # Always-visible rows (no spacing between them)
-        add_row("Key", "key", pady=0, required=True)
-        type_frame = add_row("类型 (Type)", "type", "combo",
+        add_row("键名 (key)", "key", pady=0, required=True)
+        type_frame = add_row("类型 (type)", "type", "combo",
                              list(FIELD_TYPE_LABELS.keys()), pady=0, required=True)
-        add_row("Label", "label", pady=0, required=True)
+        add_row("标签 (label)", "label", pady=0, required=True)
 
         # Create all optional rows up front, hidden initially
         optional_keys = ["description", "min", "max", "step"]
