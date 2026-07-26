@@ -29,6 +29,34 @@ _STATE_DIR.mkdir(parents=True, exist_ok=True)
 _STATE_FILE = _STATE_DIR / "state.json"
 
 
+class _ToolTip:
+    """Lightweight hover tooltip for a widget."""
+
+    def __init__(self, widget: Any, text: str) -> None:
+        self._widget = widget
+        self._text = text
+        self._tip: Optional[Any] = None
+        widget.bind("<Enter>", self._show)
+        widget.bind("<Leave>", self._hide)
+
+    def _show(self, _event: Any = None) -> None:
+        if self._tip is not None:
+            return
+        import tkinter as tk
+        x = self._widget.winfo_rootx()
+        y = self._widget.winfo_rooty() + self._widget.winfo_height() + 4
+        self._tip = tk.Toplevel(self._widget)
+        self._tip.wm_overrideredirect(True)
+        self._tip.wm_geometry(f"+{x}+{y}")
+        tk.Label(self._tip, text=self._text, background="#333333",
+                 foreground="white", padx=6, pady=2).pack()
+
+    def _hide(self, _event: Any = None) -> None:
+        if self._tip is not None:
+            self._tip.destroy()
+            self._tip = None
+
+
 class App(ctk.CTk):
     """DGHub Plugin Packer main window."""
 
@@ -126,12 +154,19 @@ class App(ctk.CTk):
                                 command=select_cmd)
             btn.pack(side="left")
             btns = [btn]
+            # Fixed-width slot reserves reset button space so the
+            # select button column never shifts when reset toggles
+            slot = ctk.CTkFrame(btn_frame, fg_color="transparent",
+                                width=33, height=28)
+            slot.pack(side="left")
+            slot.pack_propagate(False)
             if reset_cmd:
-                reset_btn = ctk.CTkButton(btn_frame, text="↺", width=28,
+                reset_btn = ctk.CTkButton(slot, text="↺", width=28,
                         command=reset_cmd, fg_color="transparent",
                         hover_color=("gray70", "gray40"),
                         font=ctk.CTkFont(size=16))
-                reset_btn.pack(side="left", padx=(5, 0))
+                # Hidden by default; shown only when dir is manually set
+                _ToolTip(reset_btn, "恢复默认")
                 btns.append(reset_btn)
             return frame, lbl, btns
         
@@ -143,15 +178,25 @@ class App(ctk.CTk):
         self._src_path_frame, self._src_label, self._src_btns = _make_dir_row(
             bar, 1, "源码目录:", "", self._select_source_dir,
             reset_cmd=self._reset_source_dir)
+        self._src_reset_btn = self._src_btns[1]
         
         # Row 2: 输出目录（初始禁用）
         self._out_path_frame, self._out_label, self._out_btns = _make_dir_row(
             bar, 2, "输出目录:", "", self._select_output_dir,
             reset_cmd=self._reset_output_dir)
+        self._out_reset_btn = self._out_btns[1]
         
         # Initially disable source and output rows
         for b in self._src_btns + self._out_btns:
             b.configure(state="disabled")
+
+    @staticmethod
+    def _set_reset_visible(btn: Any, visible: bool) -> None:
+        """Show/hide a reset button (visible only when dir is manually set)."""
+        if visible:
+            btn.pack(side="left", padx=(5, 0))
+        else:
+            btn.pack_forget()
 
     # ------------------------------------------------------------------
     # bottom bar
@@ -184,6 +229,7 @@ class App(ctk.CTk):
         self._source_auto = False
         self._src_label.configure(text=_norm(d), text_color=("gray10", "gray90"))
         self._src_path_frame.configure(border_width=0)
+        self._set_reset_visible(self._src_reset_btn, True)
         self._dist_view.clear_entry_error()
         self._clear_tab_highlight("发布")
         self._save_source_dir(d)
@@ -199,6 +245,7 @@ class App(ctk.CTk):
             self._src_label.configure(text=_norm(self._plugin_dir),
                                       text_color=("gray60", "gray60"))
             self._src_path_frame.configure(border_width=0)
+            self._set_reset_visible(self._src_reset_btn, False)
             self._dist_view.clear_entry_error()
             self._clear_tab_highlight("发布")
             self._save_source_dir("")
@@ -214,6 +261,7 @@ class App(ctk.CTk):
         self._out_label.configure(text=_norm(d), text_color=("gray10", "gray90"))
         self._output_auto = False
         self._out_path_frame.configure(border_width=0)
+        self._set_reset_visible(self._out_reset_btn, True)
         self._dist_view.refresh_preview(_norm(d))
         self._save_output_dir(_norm(d))
         # Ensure source dir auto-color is preserved
@@ -228,6 +276,7 @@ class App(ctk.CTk):
             self._out_label.configure(text=default_out, text_color=("gray60", "gray60"))
             self._output_auto = True
             self._out_path_frame.configure(border_width=0)
+            self._set_reset_visible(self._out_reset_btn, False)
             self._dist_view.refresh_preview(default_out)
             self._save_output_dir("")
             # Ensure source dir auto-color is preserved
@@ -582,6 +631,7 @@ class App(ctk.CTk):
             self._source_auto = True
             self._src_label.configure(text=_norm(d), text_color=("gray60", "gray60"))
         self._src_path_frame.configure(border_width=0)
+        self._set_reset_visible(self._src_reset_btn, not self._source_auto)
 
         # Enable source and output dir rows
         for b in self._src_btns + self._out_btns:
@@ -598,6 +648,7 @@ class App(ctk.CTk):
             self._out_label.configure(text=default_out, text_color=("gray60", "gray60"))
             self._output_dir = default_out
             self._output_auto = True
+        self._set_reset_visible(self._out_reset_btn, not self._output_auto)
         self._dist_view.refresh_preview(self._output_dir)
 
         self._log_view.write(f"已加载项目: {d}")

@@ -331,6 +331,10 @@ class Agent:
         Use this to save runtime state that should survive restarts.
         Do not write server-reserved keys (e.g. ``target_id``).
 
+        Note:
+            The server does not echo a ``config_changed`` back for this
+            write — update your local config cache after sending.
+
         Args:
             key: Config key name.
             value: Value to persist (must be JSON-serializable).
