@@ -1,15 +1,15 @@
-"""Enum types used throughout the DGHub SDK."""
+"""DGHub SDK 全局使用的枚举类型。"""
 
 from enum import StrEnum
 
 
 class OpCode(StrEnum):
-    """WebSocket protocol operation codes.
+    """WebSocket 协议操作码。
 
-    Client-to-server and server-to-client message types.
+    包含客户端到服务端与服务端到客户端的消息类型。
     """
 
-    # Client -> Server
+    # 客户端 -> 服务端
     HELLO = "hello"
     TRIGGER = "trigger"
     EVENT = "event"
@@ -19,7 +19,7 @@ class OpCode(StrEnum):
     STATUS = "status"
     LOG = "log"
     SET_CONFIG = "set_config"
-    # Server -> Client
+    # 服务端 -> 客户端
     HELLO_ACK = "hello_ack"
     CONFIG = "config"
     CONFIG_CHANGED = "config_changed"
@@ -30,7 +30,7 @@ class OpCode(StrEnum):
 
 
 class Channel(StrEnum):
-    """Target device channel for strength/waveform commands."""
+    """强度/波形指令的目标设备通道。"""
 
     A = "a"
     B = "b"
@@ -38,21 +38,21 @@ class Channel(StrEnum):
 
 
 class Action(StrEnum):
-    """Trigger action type — what aspects of the device to affect."""
+    """触发动作类型 —— 指定作用于设备的哪些方面。"""
 
     BOTH = "both"
-    """Affect both strength and waveform."""
+    """同时作用于强度和波形。"""
     STRENGTH = "strength"
-    """Affect strength only."""
+    """仅作用于强度。"""
     WAVEFORM = "waveform"
-    """Affect waveform only."""
+    """仅作用于波形。"""
 
 
 class StrengthMode(StrEnum):
-    """How a trigger affects the baseline strength.
+    """触发对 baseline 强度的作用方式。
 
-    ROLLBACK: temporarily offset strength, auto-revert after duration.
-    PERMANENT: permanently shift baseline (persisted to config).
+    ROLLBACK：临时偏移强度，持续时间结束后自动恢复。
+    PERMANENT：永久偏移 baseline（持久化到配置）。
     """
 
     ROLLBACK = "rollback"
@@ -60,7 +60,7 @@ class StrengthMode(StrEnum):
 
 
 class LogLevel(StrEnum):
-    """Log severity levels for send_log messages."""
+    """send_log 消息的日志级别。"""
 
     DEBUG = "debug"
     INFO = "info"
@@ -69,22 +69,22 @@ class LogLevel(StrEnum):
 
 
 class CheckState(StrEnum):
-    """Startup-check status values reported via send_status."""
+    """通过 send_status 上报的启动检查状态值。"""
 
     IDLE = "idle"
-    """Not yet started or no data."""
+    """尚未开始或无数据。"""
     PENDING = "pending"
-    """Check in progress."""
+    """检查进行中。"""
     OK = "ok"
-    """Check passed."""
+    """检查通过。"""
     WARN = "warn"
-    """Check completed with warnings."""
+    """检查完成但有警告。"""
     FAIL = "fail"
-    """Check failed."""
+    """检查失败。"""
 
 
 class DeviceType(StrEnum):
-    """Connected DGLab device hardware version."""
+    """当前连接的 DGLab 设备硬件版本。"""
 
     V2 = "v2"
     V3 = "v3"

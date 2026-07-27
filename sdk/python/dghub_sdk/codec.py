@@ -1,4 +1,4 @@
-"""Message dataclass and codec (serialization / deserialization)."""
+"""消息数据类与编解码器（序列化 / 反序列化）。"""
 
 import json
 from dataclasses import dataclass
@@ -15,7 +15,7 @@ from .enums import Action, Channel, DeviceType, LogLevel, OpCode, StrengthMode
 
 @dataclass(slots=True)
 class CodecMessage:
-    """Typed result of Codec.parse(). Check ``.op`` to know which fields are populated."""
+    """``Codec.parse()`` 的类型化结果。通过 ``.op`` 判断哪些字段有值。"""
     op: OpCode
     # hello_ack
     status: str | None = None
@@ -41,11 +41,11 @@ class CodecMessage:
 
 
 class Codec:
-    """Namespace for all message encoding/decoding. No instantiation needed."""
+    """所有消息编解码的命名空间类，无需实例化。"""
 
     @staticmethod
     def hello(token: str, manifest: dict[str, Any]) -> str:
-        """Build hello handshake message."""
+        """构建 hello 握手消息。"""
         if not token:
             raise ValueError("token is required")
         if not isinstance(manifest, dict):
@@ -67,10 +67,10 @@ class Codec:
         label: str | None = None,
         username: str | None = None,
     ) -> str:
-        """Build unified trigger message.
+        """构建统一触发消息。
 
-        Raises ``ValueError`` if ``preset`` is empty when ``action``
-        includes waveform (Action.BOTH or Action.WAVEFORM).
+        当 ``action`` 包含波形（Action.BOTH 或 Action.WAVEFORM）且
+        ``preset`` 为空时抛出 ``ValueError``。
         """
         if action in (Action.BOTH, Action.WAVEFORM) and not preset:
             raise ValueError("preset is required when action includes waveform")
@@ -98,7 +98,7 @@ class Codec:
         duration: float = 1.0,
         event_id: str | None = None,
     ) -> str:
-        """Build one-time event message."""
+        """构建一次性事件消息。"""
         if not label:
             raise ValueError("label is required")
         if not name:
@@ -119,7 +119,7 @@ class Codec:
 
     @staticmethod
     def pulse(preset: str, channel: Channel = Channel.BOTH) -> str:
-        """Build waveform-only pulse message."""
+        """构建仅波形的脉冲消息。"""
         if not preset:
             raise ValueError("preset is required")
         return json.dumps({
@@ -130,7 +130,7 @@ class Codec:
 
     @staticmethod
     def set_strength(channel: Channel, pct: int) -> str:
-        """Build set_strength message."""
+        """构建 set_strength 消息。"""
         if not 0 <= pct <= 100:
             raise ValueError("pct must be 0-100")
         return json.dumps({
@@ -141,7 +141,7 @@ class Codec:
 
     @staticmethod
     def adjust_strength(channel: Channel, delta_pct: int) -> str:
-        """Build adjust_strength message."""
+        """构建 adjust_strength 消息。"""
         if not -100 <= delta_pct <= 100:
             raise ValueError("delta_pct must be -100 to 100")
         return json.dumps({
@@ -152,7 +152,7 @@ class Codec:
 
     @staticmethod
     def status(fields: dict[str, Any]) -> str:
-        """Build status update message."""
+        """构建状态上报消息。"""
         if not isinstance(fields, dict):
             raise TypeError("fields must be a dict")
         return json.dumps({
@@ -162,7 +162,7 @@ class Codec:
 
     @staticmethod
     def log(level: LogLevel, message: str) -> str:
-        """Build log message."""
+        """构建日志消息。"""
         return json.dumps({
             "op": "log",
             "level": level.value,
@@ -171,7 +171,7 @@ class Codec:
 
     @staticmethod
     def set_config(key: str, value: Any) -> str:
-        """Build set_config message for persisting runtime data."""
+        """构建 set_config 消息，用于持久化运行时数据。"""
         return json.dumps({
             "op": "set_config",
             "key": key,
@@ -180,7 +180,7 @@ class Codec:
 
     @staticmethod
     def parse(raw: str) -> CodecMessage:
-        """Parse JSON string into typed ``CodecMessage`` dataclass."""
+        """将 JSON 字符串解析为类型化的 ``CodecMessage`` 数据类。"""
         data = json.loads(raw)
         match data:
             case {"op": "hello_ack"} as ack:
@@ -206,7 +206,7 @@ class Codec:
 
     @staticmethod
     def serialize(msg: CodecMessage) -> str:
-        """Serialize ``CodecMessage`` back to JSON string."""
+        """将 ``CodecMessage`` 序列化回 JSON 字符串。"""
         data: dict[str, Any] = {"op": msg.op.value}
         for key in ("status", "data", "key", "value", "connected",
                      "device_type", "max_strength_a", "max_strength_b",

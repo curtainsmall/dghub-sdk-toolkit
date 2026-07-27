@@ -1,8 +1,7 @@
-"""Async WebSocket connection manager — fully sync public API.
+"""异步 WebSocket 连接管理器 —— 对外提供完全同步的 API。
 
-Wraps the entire async lifecycle in a background thread. Messages received
-from the server are queued and dispatched to callbacks when ``poll()`` is
-called from the user's thread.
+将整个异步生命周期封装在后台线程中。收到的服务端消息会先进入队列，
+在用户线程调用 ``poll()`` 时再分发到各回调。
 """
 
 import asyncio
@@ -19,11 +18,10 @@ from .enums import Action, Channel, CheckState, DeviceType, LogLevel, OpCode, St
 
 
 class Agent:
-    """Async WebSocket connection manager — fully sync public API.
+    """异步 WebSocket 连接管理器 —— 对外提供完全同步的 API。
 
-    Wraps the entire async lifecycle in a background thread. Messages received
-    from the server are queued and dispatched to callbacks when ``poll()`` is
-    called from the user's thread.
+    将整个异步生命周期封装在后台线程中。收到的服务端消息会先进入队列，
+    在用户线程调用 ``poll()`` 时再分发到各回调。
     """
 
     def __init__(
@@ -39,26 +37,26 @@ class Agent:
         on_stop: Callable[[str], None] | None = None,
         on_ping: Callable[[float], None] | None = None,
     ):
-        """Initialize the Agent.
+        """初始化 Agent。
 
         Args:
-            manifest_dir: Directory containing ``manifest.json``. Defaults to
-                the caller's file directory.
-            max_retries: Maximum WebSocket connection retry attempts.
-            send_timeout: Optional timeout (seconds) for each send operation.
-                ``None`` means fire-and-forget (no blocking wait).
-            on_ready: Called after successful handshake with hello_ack data.
-            on_config: Called with the full config dict (pushed once after
-                handshake). Signature: ``(config: dict) -> None``.
-            on_config_changed: Called when a single config key changes.
-                Signature: ``(key: str, value: Any) -> None``.
-            on_device_info: Called on device state changes.
-                Signature: ``(connected, device_type, max_a, max_b) -> None``.
-            on_stop: Called when the server requests plugin shutdown.
-                Signature: ``(reason: str) -> None``.
-            on_ping: Called on server ping with timestamp.
+            manifest_dir: 包含 ``manifest.json`` 的目录，默认为调用方
+                文件所在目录。
+            max_retries: WebSocket 连接的最大重试次数。
+            send_timeout: 每次发送操作的可选超时时间（秒）。
+                ``None`` 表示发完即返回（不阻塞等待）。
+            on_ready: 握手成功后调用，传入 hello_ack 数据。
+            on_config: 握手后服务端推送一次全量配置时调用。
+                签名：``(config: dict) -> None``。
+            on_config_changed: 单个配置项变更时调用。
+                签名：``(key: str, value: Any) -> None``。
+            on_device_info: 设备状态变化时调用。
+                签名：``(connected, device_type, max_a, max_b) -> None``。
+            on_stop: 服务端要求插件停止时调用。
+                签名：``(reason: str) -> None``。
+            on_ping: 收到服务端 ping 时调用，传入时间戳。
         """
-        # --- manifest resolution ---
+        # --- 解析 manifest 目录 ---
         if manifest_dir is None:
             caller_file = sys._getframe(1).f_code.co_filename
             self._manifest_dir = Path(caller_file).resolve().parent
@@ -72,7 +70,7 @@ class Agent:
         self._max_retries = max_retries
         self._send_timeout = send_timeout
 
-        # --- callbacks ---
+        # --- 回调 ---
         self.on_ready = on_ready
         self.on_config = on_config
         self.on_config_changed = on_config_changed
@@ -80,7 +78,7 @@ class Agent:
         self.on_stop = on_stop
         self.on_ping = on_ping
 
-        # --- internal state ---
+        # --- 内部状态 ---
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._ws: Any = None
@@ -90,15 +88,15 @@ class Agent:
         self._connected = False
         self._stopped = False
 
-        # startup-check state
+        # 启动检查状态
         self._check_title: str = "Startup Check"
         self._check_steps: dict[str, dict] = {}
 
-        # queues (thread-safe)
+        # 队列（线程安全）
         self._queue: queue.Queue[CodecMessage] = queue.Queue()
         self._error_queue: queue.Queue[Exception] = queue.Queue()
 
-    # -- properties --------------------------------------------------------
+    # -- 属性 ----------------------------------------------------------------
 
     @property
     def connected(self) -> bool:
@@ -108,19 +106,19 @@ class Agent:
     def plugin_id(self) -> str:
         return self._plugin_id
 
-    # -- public lifecycle --------------------------------------------------
+    # -- 公开生命周期方法 ------------------------------------------------------
 
     def start(self) -> None:
-        """Launch WebSocket connection in a background thread. Non-blocking."""
+        """在后台线程中启动 WebSocket 连接，不阻塞。"""
         self._stopped = False
         self._thread = threading.Thread(target=self._run_async, daemon=True)
         self._thread.start()
 
     def poll(self, timeout: float | None = None) -> None:
-        """Process received messages. Invokes callbacks on current thread.
+        """处理已接收的消息，在当前线程上调用回调。
 
-        ``timeout=None`` (default): non-blocking, drain all queued messages.
-        ``timeout>=0``: blocking, wait up to *timeout* seconds for a message.
+        ``timeout=None``（默认）：不阻塞，排空队列中所有消息。
+        ``timeout>=0``：阻塞，最多等待 *timeout* 秒获取一条消息。
         """
         if timeout is None:
             while not self._queue.empty():
@@ -134,7 +132,7 @@ class Agent:
                 pass
 
     def stop(self) -> None:
-        """Signal the background loop to stop and disconnect."""
+        """通知后台循环停止并断开连接。"""
         self._stopped = True
         if self._loop is not None and self._loop.is_running():
             async def _do_close():
@@ -144,7 +142,7 @@ class Agent:
             asyncio.run_coroutine_threadsafe(_do_close(), self._loop)
 
     def wait(self, timeout: float | None = None) -> None:
-        """Block until the background thread exits (optional)."""
+        """阻塞等待后台线程退出（可选）。"""
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=timeout)
 
@@ -156,10 +154,10 @@ class Agent:
         self.stop()
         self.wait()
 
-    # -- public send methods (all sync) ------------------------------------
+    # -- 公开发送方法（均为同步） --------------------------------------------
 
     def send(self, raw: str) -> None:
-        """Send a raw JSON string over the WebSocket."""
+        """通过 WebSocket 发送原始 JSON 字符串。"""
         self._schedule_send(raw)
 
     def send_trigger(
@@ -173,20 +171,20 @@ class Agent:
         label: str | None = None,
         username: str | None = None,
     ) -> None:
-        """Send a strength/waveform trigger to the device.
+        """向设备发送强度/波形触发。
 
         Args:
-            action: What to affect — strength, waveform, or both.
-            delta_pct: Strength change relative to baseline (0–100).
-            strength_mode: ROLLBACK (temporary) or PERMANENT (persisted).
-            duration_s: Trigger duration in seconds.
-            preset: Waveform preset name (required if action includes waveform).
-            channel: Target channel (a / b / both).
-            label: Optional display label for the trigger event.
-            username: Optional username associated with this trigger.
+            action: 作用对象 —— 强度、波形或两者。
+            delta_pct: 相对 baseline 的强度变化量（0–100）。
+            strength_mode: ROLLBACK（临时）或 PERMANENT（持久）。
+            duration_s: 触发持续时间（秒）。
+            preset: 波形预设名（action 包含波形时必填）。
+            channel: 目标通道（a / b / both）。
+            label: 可选，触发事件的展示标签。
+            username: 可选，与本次触发关联的用户名。
 
         Raises:
-            ValueError: If action includes waveform but preset is empty.
+            ValueError: action 包含波形但 preset 为空时抛出。
         """
         raw = Codec.trigger(action, delta_pct, strength_mode,
                             duration_s, preset, channel, label, username)
@@ -201,65 +199,65 @@ class Agent:
         duration: float = 1.0,
         event_id: str | None = None,
     ) -> None:
-        """Send a one-time named event.
+        """发送一次性命名事件。
 
         Args:
-            label: Event category label (required).
-            name: Event display name (required).
-            username: Optional username who triggered the event.
-            strength_pct: Optional strength hint (0–100).
-            duration: Event duration in seconds.
-            event_id: Optional deduplication ID.
+            label: 事件分类标签（必填）。
+            name: 事件展示名称（必填）。
+            username: 可选，触发事件的用户名。
+            strength_pct: 可选，强度提示值（0–100）。
+            duration: 事件持续时间（秒）。
+            event_id: 可选，用于去重的事件 ID。
         """
         raw = Codec.event(label, name, username, strength_pct, duration, event_id)
         self._schedule_send(raw)
 
     def send_pulse(self, preset: str, channel: Channel = Channel.BOTH) -> None:
-        """Send a waveform-only pulse (no strength change).
+        """发送仅波形的脉冲（不改变强度）。
 
         Args:
-            preset: Waveform preset name.
-            channel: Target channel.
+            preset: 波形预设名。
+            channel: 目标通道。
         """
         raw = Codec.pulse(preset, channel)
         self._schedule_send(raw)
 
     def send_set_strength(self, channel: Channel, pct: int) -> None:
-        """Set absolute strength for a channel.
+        """设置指定通道的绝对强度。
 
         Args:
-            channel: Target channel.
-            pct: Absolute strength percentage (0–100).
+            channel: 目标通道。
+            pct: 绝对强度百分比（0–100）。
         """
         raw = Codec.set_strength(channel, pct)
         self._schedule_send(raw)
 
     def send_adjust_strength(self, channel: Channel, delta_pct: int) -> None:
-        """Adjust strength by a relative delta.
+        """按相对增量调整强度。
 
         Args:
-            channel: Target channel.
-            delta_pct: Relative change (-100 to 100).
+            channel: 目标通道。
+            delta_pct: 相对变化量（-100 到 100）。
         """
         raw = Codec.adjust_strength(channel, delta_pct)
         self._schedule_send(raw)
 
     def send_status(self, fields: dict[str, Any]) -> None:
-        """Report plugin status to the server (e.g. startup_check results).
+        """向服务端上报插件状态（如 startup_check 结果）。
 
         Args:
-            fields: Key-value pairs of status data. Typically includes
-                ``startup_check`` with a ``CheckState`` value.
+            fields: 状态数据的键值对。通常包含带 ``CheckState``
+                值的 ``startup_check``。
         """
         raw = Codec.status(fields)
         self._schedule_send(raw)
 
     def send_log(self, level: LogLevel, message: str) -> None:
-        """Send a log message to the server for display in the DGHub console.
+        """向服务端发送日志，展示在 DGHub 控制台中。
 
         Args:
-            level: Severity level (debug/info/warning/error).
-            message: Log message text.
+            level: 日志级别（debug/info/warning/error）。
+            message: 日志文本。
         """
         raw = Codec.log(level, message)
         self._schedule_send(raw)
@@ -275,19 +273,19 @@ class Agent:
         display_status: str | None = None,
         dont_send: bool = False,
     ) -> None:
-        """Update a startup-check step and optionally send the full state.
+        """更新一个启动检查步骤，并可选地发送全量状态。
 
-        Maintains steps internally (keyed by ``key``). Each call upserts
-        the step. Unless ``dont_send=True``, immediately sends all steps.
+        内部以 ``key`` 为键维护所有步骤，每次调用更新或新增对应步骤。
+        除非 ``dont_send=True``，否则立即发送全部步骤。
 
         Args:
-            key: Unique step identifier.
-            title: Human-readable step name.
-            state: Current check state.
-            detail: Optional status detail text.
-            hint: Optional user-facing hint.
-            display_status: Optionally set display_status in the same message.
-            dont_send: If True, only update internal state without sending.
+            key: 步骤的唯一标识。
+            title: 步骤的可读名称。
+            state: 当前检查状态。
+            detail: 可选，状态详情文本。
+            hint: 可选，面向用户的提示。
+            display_status: 可选，在同一条消息中一并设置 display_status。
+            dont_send: 为 True 时仅更新内部状态，不发送。
         """
         step: dict[str, Any] = {"key": key, "title": title, "state": state.value}
         if detail is not None:
@@ -309,52 +307,55 @@ class Agent:
         self.send_status(fields)
 
     def set_startup_check_title(self, title: str) -> None:
-        """Set the startup-check panel title (does not send)."""
+        """设置启动检查面板的标题（不发送）。"""
         self._check_title = title
 
     def send_display_status(self, text: str) -> None:
-        """Send a display_status update to the server."""
+        """向服务端发送 display_status 更新。"""
         self.send_status({"display_status": text})
 
     def send_status_field(self, key: str, value: Any) -> None:
-        """Send a single status field to the server.
+        """向服务端发送单个状态字段。
 
         Args:
-            key: Status field name.
-            value: Field value (must be JSON-serializable).
+            key: 状态字段名。
+            value: 字段值（必须可 JSON 序列化）。
         """
         self.send_status({key: value})
 
     def send_set_config(self, key: str, value: Any) -> None:
-        """Persist a plugin-owned config key to the server.
+        """将插件自有的配置键持久化到服务端。
 
-        Use this to save runtime state that should survive restarts.
-        Do not write server-reserved keys (e.g. ``target_id``).
+        用于保存需要在重启后保留的运行时状态。
+        不要写入服务端保留的键（如 ``target_id``）。
+
+        Note:
+            服务端不会为本次写入回推 ``config_changed``，
+            发送后应自行更新本地配置缓存。
 
         Args:
-            key: Config key name.
-            value: Value to persist (must be JSON-serializable).
+            key: 配置键名。
+            value: 要持久化的值（必须可 JSON 序列化）。
         """
         raw = Codec.set_config(key, value)
         self._schedule_send(raw)
 
-    # -- public error inspection -------------------------------------------
+    # -- 公开异常查询 ----------------------------------------------------------
 
     def get_exception(self) -> Exception | None:
-        """Return one captured exception from the background thread, or ``None``.
+        """返回后台线程捕获的一个异常，无则返回 ``None``。
 
-        Multiple exceptions are preserved in an internal queue. The caller
-        should loop until ``None`` is returned.
+        多个异常会保留在内部队列中，调用方应循环获取直到返回 ``None``。
         """
         try:
             return self._error_queue.get_nowait()
         except queue.Empty:
             return None
 
-    # -- internal: thread entry point ---------------------------------------
+    # -- 内部：线程入口 ----------------------------------------------------------
 
     def _run_async(self) -> None:
-        """Background thread entry point. Creates its own event loop."""
+        """后台线程入口，创建独立的事件循环。"""
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
         try:
@@ -366,10 +367,10 @@ class Agent:
             self._loop = None
 
     async def _connect_and_loop(self) -> None:
-        """Core async lifecycle: load manifest, connect, handshake, receive loop."""
+        """核心异步生命周期：加载 manifest、连接、握手、接收循环。"""
         import websockets
 
-        # ---- resolve manifest ----
+        # ---- 解析 manifest ----
         manifest_path = self._manifest_dir / "manifest.json"
         if not manifest_path.exists():
             raise FileNotFoundError(f"manifest.json not found: {manifest_path}")
@@ -378,7 +379,7 @@ class Agent:
 
         self._plugin_id = self._manifest.get("id", "")
 
-        # ---- env vars ----
+        # ---- 环境变量 ----
         host = os.environ.get("DGHUB_HOST", "localhost")
         port = os.environ.get("DGHUB_PORT", "27020")
         self._token = os.environ.get("DGHUB_TOKEN", "")
@@ -387,7 +388,7 @@ class Agent:
 
         url = f"ws://{host}:{port}/ws/plugin?token={self._token}"
 
-        # ---- connect with retry ----
+        # ---- 带重试的连接 ----
         for attempt in range(self._max_retries + 1):
             try:
                 self._ws = await websockets.connect(url)
@@ -399,7 +400,7 @@ class Agent:
                 else:
                     raise
 
-        # ---- handshake ----
+        # ---- 握手 ----
         hello_raw = Codec.hello(self._token, self._manifest)
         await self._ws.send(hello_raw)
         ack_raw = await self._ws.recv()
@@ -417,7 +418,7 @@ class Agent:
             "sdk_version": ack.get("sdk_version"),
         }))
 
-        # ---- receive loop ----
+        # ---- 接收循环 ----
         async for raw in self._ws:
             if self._stopped:
                 break
@@ -433,10 +434,10 @@ class Agent:
 
         self._connected = False
 
-    # -- internal: helper methods ------------------------------------------
+    # -- 内部：辅助方法 ----------------------------------------------------------
 
     def _invoke(self, msg: CodecMessage) -> None:
-        """Dispatch a single message to the appropriate callback."""
+        """将单条消息分发到对应的回调。"""
         match msg.op:
             case OpCode.HELLO_ACK:
                 if self.on_ready and msg.data:
@@ -468,7 +469,7 @@ class Agent:
                 pass
 
     def _schedule_send(self, raw: str) -> None:
-        """Schedule sending a message on the background event loop."""
+        """将发送操作调度到后台事件循环上执行。"""
         if self._loop is None or not self._loop.is_running():
             raise RuntimeError("Agent is not connected")
 

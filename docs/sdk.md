@@ -71,6 +71,23 @@ with dghub_sdk.Agent(on_config=on_config,
     ...
 ```
 
+### config 的内容与边界
+
+`config` 是当前插件 ID 下的"配置值快照"，不是 `config_schema` 本身。它通常包含：
+
+- 已经持久化的 `config_schema` 字段值
+- 插件通过 `set_config` 写入的自定义字段
+- DGHub 管理的公开字段，例如 `target_id`、运行中产生的 `idle_strength`
+
+边界约定：
+
+- `config_schema.default` 不保证自动出现在 `config` 中，尚未保存的字段可能缺失，
+  插件应使用 schema 的默认值兜底
+- `enabled` 和 `_` 开头的内部字段不会下发
+- `target_id` 由 DGHub 管理，插件不能通过 `set_config` 修改
+- 握手后收到一次全量 `config`，之后用户修改配置会收到单字段 `config_changed`
+- `set_config` 发送后不会回推 `config_changed`，插件应在发送后同步更新自己的本地缓存
+
 
 ---
 
