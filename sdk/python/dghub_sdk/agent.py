@@ -87,6 +87,8 @@ class Agent:
         self._plugin_id: str = ""
         self._connected = False
         self._stopped = False
+        self._ready_event = threading.Event()
+        self._startup_exception: Exception | None = None
 
         # 启动检查状态
         self._check_title: str = "Startup Check"
@@ -111,8 +113,31 @@ class Agent:
     def start(self) -> None:
         """在后台线程中启动 WebSocket 连接，不阻塞。"""
         self._stopped = False
+        self._connected = False
+        self._startup_exception = None
+        self._ready_event.clear()
         self._thread = threading.Thread(target=self._run_async, daemon=True)
         self._thread.start()
+
+    def wait_ready(self, timeout: float | None = None) -> None:
+        """阻塞等待握手成功，或抛出连接阶段发生的异常。
+
+        应在 ``start()``（或进入 ``with`` 块）之后、首次调用
+        ``poll()`` / ``send_*`` 之前手动调用。
+        """
+        if self._thread is None:
+            raise RuntimeError("Agent has not been started")
+        if not self._ready_event.wait(timeout=timeout):
+            raise TimeoutError("Agent did not become ready before timeout")
+        if self._connected:
+            return
+        if self._startup_exception is not None:
+            raise self._startup_exception
+        raise ConnectionError("Agent stopped before handshake completed")
+
+    def is_ready(self) -> bool:
+        """一次性检查握手是否已完成（不阻塞）。"""
+        return self._ready_event.is_set() and self._connected
 
     def poll(self, timeout: float | None = None) -> None:
         """处理已接收的消息，在当前线程上调用回调。
@@ -139,9 +164,10 @@ class Agent:
                 if self._ws is not None:
                     await self._ws.close()
                     self._ws = None
-            asyncio.run_coroutine_threadsafe(_do_close(), self._loop)
+            future = asyncio.run_coroutine_threadsafe(_do_close(), self._loop)
+            future.add_done_callback(self._record_background_exception)
 
-    def wait(self, timeout: float | None = None) -> None:
+    def wait_threading_exit(self, timeout: float | None = None) -> None:
         """阻塞等待后台线程退出（可选）。"""
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=timeout)
@@ -152,7 +178,7 @@ class Agent:
 
     def __exit__(self, *args: Any) -> None:
         self.stop()
-        self.wait()
+        self.wait_threading_exit()
 
     # -- 公开发送方法（均为同步） --------------------------------------------
 
@@ -170,6 +196,10 @@ class Agent:
         channel: Channel = Channel.BOTH,
         label: str | None = None,
         username: str | None = None,
+        name: str | None = None,
+        cause: str | None = None,
+        pulse_name: str | None = None,
+        target_id: str | None = None,
     ) -> None:
         """向设备发送强度/波形触发。
 
@@ -182,12 +212,18 @@ class Agent:
             channel: 目标通道（a / b / both）。
             label: 可选，触发事件的展示标签。
             username: 可选，与本次触发关联的用户名。
+            name: 可选，事件的具体展示内容。
+            cause: 可选，触发原因的人话描述。
+            pulse_name: 可选，覆盖事件流显示的波形名。
+            target_id: 可选，V4 本次行为的显式设备目标。
 
         Raises:
             ValueError: action 包含波形但 preset 为空时抛出。
         """
-        raw = Codec.trigger(action, delta_pct, strength_mode,
-                            duration_s, preset, channel, label, username)
+        raw = Codec.trigger(
+            action, delta_pct, strength_mode, duration_s, preset, channel,
+            label, username, name, cause, pulse_name, target_id,
+        )
         self._schedule_send(raw)
 
     def send_event(
@@ -198,6 +234,12 @@ class Agent:
         strength_pct: int | None = None,
         duration: float = 1.0,
         event_id: str | None = None,
+        cause: str | None = None,
+        pulse_name: str | None = None,
+        from_pct: int | None = None,
+        to_pct: int | None = None,
+        delta_pct: int | None = None,
+        target_id: str | None = None,
     ) -> None:
         """发送一次性命名事件。
 
@@ -208,38 +250,65 @@ class Agent:
             strength_pct: 可选，强度提示值（0–100）。
             duration: 事件持续时间（秒）。
             event_id: 可选，用于去重的事件 ID。
+            cause: 可选，触发原因的人话描述。
+            pulse_name: 可选，本次事件使用的波形名。
+            from_pct: 可选，事件前的强度百分比。
+            to_pct: 可选，事件后的目标强度百分比。
+            delta_pct: 可选，目标相对原强度的差值。
+            target_id: 可选，V4 事件所属的显式设备目标。
         """
-        raw = Codec.event(label, name, username, strength_pct, duration, event_id)
+        raw = Codec.event(
+            label, name, username, strength_pct, duration, event_id,
+            cause, pulse_name, from_pct, to_pct, delta_pct, target_id,
+        )
         self._schedule_send(raw)
 
-    def send_pulse(self, preset: str, channel: Channel = Channel.BOTH) -> None:
+    def send_pulse(
+        self,
+        preset: str,
+        channel: Channel = Channel.BOTH,
+        target_id: str | None = None,
+    ) -> None:
         """发送仅波形的脉冲（不改变强度）。
 
         Args:
             preset: 波形预设名。
             channel: 目标通道。
+            target_id: 可选，V4 本次行为的显式设备目标。
         """
-        raw = Codec.pulse(preset, channel)
+        raw = Codec.pulse(preset, channel, target_id)
         self._schedule_send(raw)
 
-    def send_set_strength(self, channel: Channel, pct: int) -> None:
+    def send_set_strength(
+        self,
+        channel: Channel,
+        pct: int,
+        target_id: str | None = None,
+    ) -> None:
         """设置指定通道的绝对强度。
 
         Args:
             channel: 目标通道。
             pct: 绝对强度百分比（0–100）。
+            target_id: 可选，V4 本次行为的显式设备目标。
         """
-        raw = Codec.set_strength(channel, pct)
+        raw = Codec.set_strength(channel, pct, target_id)
         self._schedule_send(raw)
 
-    def send_adjust_strength(self, channel: Channel, delta_pct: int) -> None:
+    def send_adjust_strength(
+        self,
+        channel: Channel,
+        delta_pct: int,
+        target_id: str | None = None,
+    ) -> None:
         """按相对增量调整强度。
 
         Args:
             channel: 目标通道。
             delta_pct: 相对变化量（-100 到 100）。
+            target_id: 可选，V4 本次行为的显式设备目标。
         """
-        raw = Codec.adjust_strength(channel, delta_pct)
+        raw = Codec.adjust_strength(channel, delta_pct, target_id)
         self._schedule_send(raw)
 
     def send_status(self, fields: dict[str, Any]) -> None:
@@ -361,8 +430,21 @@ class Agent:
         try:
             self._loop.run_until_complete(self._connect_and_loop())
         except Exception as exc:
+            if not self._ready_event.is_set():
+                self._startup_exception = exc
             self._error_queue.put(exc)
         finally:
+            self._connected = False
+            self._ready_event.set()
+            pending = asyncio.all_tasks(self._loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                self._loop.run_until_complete(asyncio.gather(
+                    *pending,
+                    return_exceptions=True,
+                ))
+            self._loop.run_until_complete(self._loop.shutdown_asyncgens())
             self._loop.close()
             self._loop = None
 
@@ -417,6 +499,7 @@ class Agent:
             "reason": ack.get("reason"),
             "sdk_version": ack.get("sdk_version"),
         }))
+        self._ready_event.set()
 
         # ---- 接收循环 ----
         async for raw in self._ws:
@@ -474,9 +557,20 @@ class Agent:
             raise RuntimeError("Agent is not connected")
 
         async def _do_send():
-            if self._ws is not None:
-                await self._ws.send(raw)
+            if self._ws is None:
+                raise RuntimeError("Agent is not connected")
+            await self._ws.send(raw)
 
         future = asyncio.run_coroutine_threadsafe(_do_send(), self._loop)
         if self._send_timeout is not None:
             future.result(timeout=self._send_timeout)
+        else:
+            future.add_done_callback(self._record_background_exception)
+
+    def _record_background_exception(self, future) -> None:
+        """将后台发送/关闭异常转发到公开异常队列。"""
+        try:
+            future.result()
+        except Exception as exc:
+            if not (self._stopped and future.cancelled()):
+                self._error_queue.put(exc)
