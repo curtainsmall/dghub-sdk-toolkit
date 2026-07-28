@@ -66,6 +66,10 @@ class Codec:
         channel: Channel = Channel.BOTH,
         label: str | None = None,
         username: str | None = None,
+        name: str | None = None,
+        cause: str | None = None,
+        pulse_name: str | None = None,
+        target_id: str | None = None,
     ) -> str:
         """构建统一触发消息。
 
@@ -83,10 +87,16 @@ class Codec:
             "preset": preset,
             "channel": channel.value,
         }
-        if label is not None:
-            msg["label"] = label
-        if username is not None:
-            msg["username"] = username
+        for key, value in (
+            ("label", label),
+            ("username", username),
+            ("name", name),
+            ("cause", cause),
+            ("pulse_name", pulse_name),
+            ("target_id", target_id),
+        ):
+            if value is not None:
+                msg[key] = value
         return json.dumps(msg)
 
     @staticmethod
@@ -97,6 +107,12 @@ class Codec:
         strength_pct: int | None = None,
         duration: float = 1.0,
         event_id: str | None = None,
+        cause: str | None = None,
+        pulse_name: str | None = None,
+        from_pct: int | None = None,
+        to_pct: int | None = None,
+        delta_pct: int | None = None,
+        target_id: str | None = None,
     ) -> str:
         """构建一次性事件消息。"""
         if not label:
@@ -109,46 +125,74 @@ class Codec:
             "name": name,
             "duration": duration,
         }
-        if username is not None:
-            msg["username"] = username
-        if strength_pct is not None:
-            msg["strength_pct"] = strength_pct
-        if event_id is not None:
-            msg["event_id"] = event_id
+        for key, value in (
+            ("username", username),
+            ("strength_pct", strength_pct),
+            ("event_id", event_id),
+            ("cause", cause),
+            ("pulse_name", pulse_name),
+            ("from_pct", from_pct),
+            ("to_pct", to_pct),
+            ("delta_pct", delta_pct),
+            ("target_id", target_id),
+        ):
+            if value is not None:
+                msg[key] = value
         return json.dumps(msg)
 
     @staticmethod
-    def pulse(preset: str, channel: Channel = Channel.BOTH) -> str:
+    def pulse(
+        preset: str,
+        channel: Channel = Channel.BOTH,
+        target_id: str | None = None,
+    ) -> str:
         """构建仅波形的脉冲消息。"""
         if not preset:
             raise ValueError("preset is required")
-        return json.dumps({
+        msg = {
             "op": "pulse",
             "preset": preset,
             "channel": channel.value,
-        })
+        }
+        if target_id is not None:
+            msg["target_id"] = target_id
+        return json.dumps(msg)
 
     @staticmethod
-    def set_strength(channel: Channel, pct: int) -> str:
+    def set_strength(
+        channel: Channel,
+        pct: int,
+        target_id: str | None = None,
+    ) -> str:
         """构建 set_strength 消息。"""
         if not 0 <= pct <= 100:
             raise ValueError("pct must be 0-100")
-        return json.dumps({
+        msg = {
             "op": "set_strength",
             "channel": channel.value,
             "pct": pct,
-        })
+        }
+        if target_id is not None:
+            msg["target_id"] = target_id
+        return json.dumps(msg)
 
     @staticmethod
-    def adjust_strength(channel: Channel, delta_pct: int) -> str:
+    def adjust_strength(
+        channel: Channel,
+        delta_pct: int,
+        target_id: str | None = None,
+    ) -> str:
         """构建 adjust_strength 消息。"""
         if not -100 <= delta_pct <= 100:
             raise ValueError("delta_pct must be -100 to 100")
-        return json.dumps({
+        msg = {
             "op": "adjust_strength",
             "channel": channel.value,
             "delta_pct": delta_pct,
-        })
+        }
+        if target_id is not None:
+            msg["target_id"] = target_id
+        return json.dumps(msg)
 
     @staticmethod
     def status(fields: dict[str, Any]) -> str:
