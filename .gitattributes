@@ -1,0 +1,2 @@
+# Keep uv.lock in LF so uv rewrites don't produce whole-file diffs on Windows
+uv.lock text eol=lf

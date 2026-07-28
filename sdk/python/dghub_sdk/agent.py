@@ -119,8 +119,12 @@ class Agent:
         self._thread = threading.Thread(target=self._run_async, daemon=True)
         self._thread.start()
 
-    def wait_until_ready(self, timeout: float | None = None) -> None:
-        """阻塞等待握手成功，或抛出连接阶段发生的异常。"""
+    def wait_ready(self, timeout: float | None = None) -> None:
+        """阻塞等待握手成功，或抛出连接阶段发生的异常。
+
+        应在 ``start()``（或进入 ``with`` 块）之后、首次调用
+        ``poll()`` / ``send_*`` 之前手动调用。
+        """
         if self._thread is None:
             raise RuntimeError("Agent has not been started")
         if not self._ready_event.wait(timeout=timeout):
@@ -130,6 +134,10 @@ class Agent:
         if self._startup_exception is not None:
             raise self._startup_exception
         raise ConnectionError("Agent stopped before handshake completed")
+
+    def is_ready(self) -> bool:
+        """一次性检查握手是否已完成（不阻塞）。"""
+        return self._ready_event.is_set() and self._connected
 
     def poll(self, timeout: float | None = None) -> None:
         """处理已接收的消息，在当前线程上调用回调。
@@ -159,24 +167,18 @@ class Agent:
             future = asyncio.run_coroutine_threadsafe(_do_close(), self._loop)
             future.add_done_callback(self._record_background_exception)
 
-    def wait(self, timeout: float | None = None) -> None:
+    def wait_threading_exit(self, timeout: float | None = None) -> None:
         """阻塞等待后台线程退出（可选）。"""
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=timeout)
 
     def __enter__(self) -> "Agent":
         self.start()
-        try:
-            self.wait_until_ready()
-        except Exception:
-            self.stop()
-            self.wait()
-            raise
         return self
 
     def __exit__(self, *args: Any) -> None:
         self.stop()
-        self.wait()
+        self.wait_threading_exit()
 
     # -- 公开发送方法（均为同步） --------------------------------------------
 

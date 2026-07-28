@@ -29,25 +29,34 @@ def on_stop(reason: str) -> None:
     running = False
 
 with dghub_sdk.Agent(on_stop=on_stop) as agent:
+    agent.wait_ready(timeout=10)   # 等待握手完成
     while running:
         agent.poll()
         # 你的游戏 / 业务逻辑
 ```
 
-`Agent` 作为上下文管理器使用时，`__enter__` 自动在后台线程建立 WebSocket
-连接并完成握手；`__exit__` 断开连接并等待线程退出。
+`Agent` 作为上下文管理器使用时，`__enter__` 在后台线程启动 WebSocket
+连接（不阻塞）；`__exit__` 断开连接并等待线程退出。
 
-如果不用上下文管理器，`start()` 仍然是非阻塞的。需要在发送第一条消息前
-确认握手完成时，显式调用 `wait_until_ready()`：
+`start()` / `__enter__` 均不等待握手完成。在首次调用 `poll()` 或发送
+消息前，应显式调用 `wait_ready()` 确认握手完成：
 
 ```python
 agent = dghub_sdk.Agent()
 agent.start()
-agent.wait_until_ready(timeout=10)
+agent.wait_ready(timeout=10)
 ```
 
-连接或握手失败会由 `wait_until_ready()` / `with Agent(...)` 直接抛出，
+需要非阻塞的单次检查时，可用 `is_ready()`：
+
+```python
+if agent.is_ready():
+    agent.send_status_field("score", score)
+```
+
+连接或握手失败会由 `wait_ready()` 直接抛出，
 运行期间的后台异常仍可通过 `get_exception()` 读取。
+等待后台线程退出使用 `wait_threading_exit()`（`__exit__` 会自动调用）。
 
 `poll()` 从内部消息队列取出已收到的服务端消息，在调用线程上依次触发回调。
 默认非阻塞（立即清空队列），传入 `timeout` 参数可阻塞等待。

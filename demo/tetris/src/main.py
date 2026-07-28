@@ -409,6 +409,9 @@ def main() -> None:
         agent.on_config = on_config_callback
         agent.on_config_changed = on_config_changed_callback
 
+        # __enter__ 不等待握手，poll/send 前需手动确认就绪
+        agent.wait_ready(timeout=10)
+
         running = True
         while running:
             dt = clock.tick(FPS) / 1000.0

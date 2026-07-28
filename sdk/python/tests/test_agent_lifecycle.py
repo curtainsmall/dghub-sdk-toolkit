@@ -53,7 +53,7 @@ def agent_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def test_context_manager_waits_until_handshake_is_ready(
+def test_context_manager_starts_without_blocking(
     agent_environment: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -64,20 +64,21 @@ def test_context_manager_waits_until_handshake_is_ready(
         entered = agent.__enter__()
         try:
             assert entered is agent
+            # __enter__ 不等待握手，需手动调用 wait_ready
+            agent.wait_ready(timeout=2)
             assert agent.connected is True
+            assert agent.is_ready() is True
         finally:
-            deadline = time.monotonic() + 2
-            while not agent.connected and time.monotonic() < deadline:
-                time.sleep(0.01)
             agent.stop()
-            agent.wait(timeout=2)
+            agent.wait_threading_exit(timeout=2)
 
         assert agent.connected is False
+        assert agent.is_ready() is False
         assert agent._thread is not None
         assert agent._thread.is_alive() is False
 
 
-def test_context_manager_surfaces_handshake_rejection(
+def test_wait_ready_surfaces_handshake_rejection(
     agent_environment: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -87,10 +88,10 @@ def test_context_manager_surfaces_handshake_rejection(
 
         with pytest.raises(ConnectionError, match="rejected for test"):
             with agent:
-                pass
+                agent.wait_ready(timeout=2)
 
 
-def test_manual_start_can_wait_until_ready(
+def test_manual_start_can_wait_ready(
     agent_environment: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -102,12 +103,14 @@ def test_manual_start_can_wait_until_ready(
         agent.start()
         start_elapsed = time.monotonic() - started_at
         try:
-            agent.wait_until_ready(timeout=2)
+            assert agent.is_ready() is False
+            agent.wait_ready(timeout=2)
             assert agent.connected is True
+            assert agent.is_ready() is True
             assert start_elapsed < 0.1
         finally:
             agent.stop()
-            agent.wait(timeout=2)
+            agent.wait_threading_exit(timeout=2)
 
 
 def test_background_send_failures_are_reported(
