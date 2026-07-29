@@ -110,7 +110,10 @@ class App(ctk.CTk):
             on_reset_source=self._reset_source_dir)
         self._dist_view.pack(fill="both", expand=True)
 
-        self._settings_view = SettingsTab(self._settings_tab)
+        self._settings_view = SettingsTab(
+            self._settings_tab,
+            on_pypi_index_changed=lambda url: self._save_state_key(
+                "pypi_index", url))
         self._settings_view.pack(fill="both", expand=True)
 
         self._log_view = LogTab(self._log_tab)
@@ -118,6 +121,10 @@ class App(ctk.CTk):
 
         # -- bottom bar (cross-tab) --
         self._build_bottom_bar()
+
+        # -- restore global settings --
+        self._settings_view.set_pypi_index(
+            self._read_state().get("pypi_index", ""))
 
         # -- auto-load last plugin dir --
         self._auto_open_last_plugin_dir()
@@ -491,6 +498,7 @@ class App(ctk.CTk):
             plugin_name=plugin_dir.name,
             dist_view=self._dist_view,
             log=self._log_view.write,
+            pypi_index=self._settings_view.get_pypi_index(),
         )
 
     # ------------------------------------------------------------------
@@ -609,20 +617,32 @@ class App(ctk.CTk):
             else:
                 self._build_status.configure(text="❌ 构建失败", text_color="red")
 
-    def _save_last_plugin_dir(self, d: str) -> None:
+    def _read_state(self) -> dict:
+        """读取全局状态文件（不存在或损坏返回空 dict）。"""
         try:
-            _STATE_FILE.write_text(
-                json.dumps({"last_plugin_dir": d}), encoding="utf-8")
+            if _STATE_FILE.is_file():
+                return json.loads(_STATE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        return {}
+
+    def _save_state_key(self, key: str, value: Any) -> None:
+        """读-改-写更新全局状态文件的单个键（不覆盖其他键）。"""
+        try:
+            state = self._read_state()
+            state[key] = value
+            _STATE_FILE.write_text(json.dumps(state), encoding="utf-8")
         except Exception:
             pass
 
+    def _save_last_plugin_dir(self, d: str) -> None:
+        self._save_state_key("last_plugin_dir", d)
+
     def _auto_open_last_plugin_dir(self) -> None:
         try:
-            if _STATE_FILE.is_file():
-                data = json.loads(_STATE_FILE.read_text(encoding="utf-8"))
-                last = data.get("last_plugin_dir", "")
-                if last and Path(last).is_dir():
-                    self._select_shared_dir(last)
+            last = self._read_state().get("last_plugin_dir", "")
+            if last and Path(last).is_dir():
+                self._select_shared_dir(last)
         except Exception:
             pass
 

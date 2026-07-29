@@ -113,6 +113,51 @@ def test_uv_build_steps_fails_on_missing_manifest_file(make_ctx):
     assert any("依赖清单不存在" in line for line in logs)
 
 
+def test_uv_build_steps_uses_pypi_index_env(make_ctx, monkeypatch):
+    """配置镜像源时，vendor 子进程应带 UV_DEFAULT_INDEX 环境变量。"""
+    import build_systems
+
+    captured: dict = {}
+
+    def fake_run_logged(cmd, log, cwd=None, shell=False,
+                        timeout=900, env=None):
+        captured["env"] = env
+        return True
+
+    monkeypatch.setattr(build_systems, "_run_logged", fake_run_logged)
+    ctx, logs = make_ctx(StubDistView(entry="main.py", manifest="x"))
+    manifest = ctx.source_dir / "pyproject.toml"
+    manifest.write_text("[project]\nname='x'\n", encoding="utf-8")
+    ctx.dist_view.manifest = str(manifest)
+
+    mirror = "https://pypi.tuna.tsinghua.edu.cn/simple"
+    ctx.pypi_index = mirror
+    assert UvSystem().build_steps(ctx) is True
+    assert captured["env"]["UV_DEFAULT_INDEX"] == mirror
+    assert any("镜像源" in line for line in logs)
+
+
+def test_uv_build_steps_no_index_env_by_default(make_ctx, monkeypatch):
+    """未配置镜像源时，env 保持 None（继承父进程环境）。"""
+    import build_systems
+
+    captured: dict = {}
+
+    def fake_run_logged(cmd, log, cwd=None, shell=False,
+                        timeout=900, env=None):
+        captured["env"] = env
+        return True
+
+    monkeypatch.setattr(build_systems, "_run_logged", fake_run_logged)
+    ctx, _ = make_ctx(StubDistView(entry="main.py", manifest="x"))
+    manifest = ctx.source_dir / "pyproject.toml"
+    manifest.write_text("[project]\nname='x'\n", encoding="utf-8")
+    ctx.dist_view.manifest = str(manifest)
+
+    assert UvSystem().build_steps(ctx) is True
+    assert captured["env"] is None
+
+
 # ---------------------------------------------------------------------------
 # UvSystem.collect_output
 # ---------------------------------------------------------------------------

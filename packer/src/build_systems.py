@@ -8,6 +8,7 @@
 - 新增语言 = 新建子类 + 在 ``BUILD_SYSTEMS`` 注册一行
 """
 
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,7 @@ class BuildContext:
     plugin_name: str
     dist_view: Any
     log: Callable[[str], None]
+    pypi_index: str = ""  # PyPI 镜像源 URL，空 = 跟随 uv 默认
 
 
 class BuildError(Exception):
@@ -38,12 +40,13 @@ class BuildError(Exception):
 
 def _run_logged(cmd: Any, log: Callable[[str], None],
                 cwd: Optional[str] = None, shell: bool = False,
-                timeout: int = 900) -> bool:
+                timeout: int = 900,
+                env: Optional[dict] = None) -> bool:
     """执行子进程，stdout/stderr 逐行写日志，返回是否成功。"""
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout,
-            cwd=cwd, shell=shell, creationflags=_NO_WINDOW)
+            cwd=cwd, shell=shell, env=env, creationflags=_NO_WINDOW)
     except FileNotFoundError:
         log(f"[错误] 命令不存在: {cmd}")
         return False
@@ -129,8 +132,12 @@ class _PythonBase(BuildSystemSupport):
                 return False
             ctx.log(f"依赖来源: {manifest}，安装到 vendor/ ...")
             vendor_dir = ctx.output_dir / "vendor"
+            env = None
+            if ctx.pypi_index:
+                env = {**os.environ, "UV_DEFAULT_INDEX": ctx.pypi_index}
+                ctx.log(f"使用 PyPI 镜像源: {ctx.pypi_index}")
             if not _run_logged(self._vendor_cmd(manifest, vendor_dir),
-                               ctx.log, cwd=str(ctx.source_dir)):
+                               ctx.log, cwd=str(ctx.source_dir), env=env):
                 ctx.log("[错误] 依赖打包失败")
                 return False
             ctx.log("依赖打包完成（清单内容不做逐包过滤，由项目清单自行控制；"
