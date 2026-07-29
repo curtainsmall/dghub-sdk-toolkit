@@ -1,8 +1,8 @@
-"""Distribute tab — 打包内容、构建选项与发布目标（按构建体系双视图）。
+"""Distribute tab — 打包内容、构建选项与发布目标（按构建系统双视图）。
 
 Python 式视图（uv / pip 共用）：依赖来源面板 + 源码目录 + entry + 构建选项 + 发布目标。
 (无构建系统) 视图：附加文件/规则清单 + 工作目录 + pre-build + entry + 发布目标。
-两视图整帧切换，发布目标与预览共享状态；目录行各自绑定自己体系的 source_dir。
+两视图整帧切换，发布目标与预览共享状态；目录行各自绑定自己系统的 source_dir。
 """
 
 import subprocess
@@ -121,7 +121,7 @@ class DistributeTab(ctk.CTkFrame):
         self._include_sdk_var.trace_add("write", self._on_setting_changed)
         self._target_var.trace_add("write", self._on_setting_changed)
 
-    # -- 目录行（两视图各一行，绑定各自体系的 source_dir） --------------
+    # -- 目录行（两视图各一行，绑定各自系统的 source_dir） --------------
 
     def _build_source_row(self, parent: ctk.CTkFrame, row: int,
                           key: str, label: str,
@@ -187,7 +187,7 @@ class DistributeTab(ctk.CTkFrame):
         else:
             row["reset"].pack(side="left")
 
-    # -- Python 式视图（Python 系体系共用） -----------------------------
+    # -- Python 式视图（Python 系构建系统共用） -----------------------------
 
     def _build_python_view(self, view: ctk.CTkFrame) -> None:
         # uniform：强制 1:2 分栏比例，内容长短变化不移动分界
@@ -287,7 +287,7 @@ class DistributeTab(ctk.CTkFrame):
         view.grid_columnconfigure(1, weight=2, uniform="split")
         view.grid_rowconfigure(1, weight=1)
 
-        # 顶部说明：本体系只打包，不构建
+        # 顶部说明：本系统只打包，不构建
         ctk.CTkLabel(view,
                      text="不使用任何构建器：可选执行 pre-build 命令后，"
                           "直接打包工作目录内的原始文件",
@@ -429,11 +429,11 @@ class DistributeTab(ctk.CTkFrame):
         self._controls.append(self._preview)
 
     # ------------------------------------------------------------------
-    # 构建体系切换
+    # 构建系统切换
     # ------------------------------------------------------------------
 
     def set_build_system(self, bs_id: str) -> None:
-        """整帧切换视图并加载该体系的命名空间配置。"""
+        """整帧切换视图并加载该系统的命名空间配置。"""
         self._bs = bs_id
         if bs_id == "generic":
             self._python_view.grid_remove()
@@ -458,19 +458,19 @@ class DistributeTab(ctk.CTkFrame):
         return self._bs
 
     def set_source_dir(self, d: str) -> None:
-        """由 app.py 推送当前体系的项目根/工作目录，文件选择器/规则求值以此为界。"""
+        """由 app.py 推送当前系统的项目根/工作目录，文件选择器/规则求值以此为界。"""
         self._source_dir = d
         if self._bs == "generic":
             self._refresh_extra_list()
 
     def set_manifest(self, path: str) -> None:
-        """由 app.py 推送当前体系选定的依赖清单（绝对路径，空 = 未选）。"""
+        """由 app.py 推送当前系统选定的依赖清单（绝对路径，空 = 未选）。"""
         self._manifest_path = path
         if self._bs != "generic":
             self._update_dep_source()
 
     def get_manifest(self) -> str:
-        """返回当前体系选定的依赖清单绝对路径（空 = 未选）。"""
+        """返回当前系统选定的依赖清单绝对路径（空 = 未选）。"""
         if self._bs == "generic":
             return ""
         return self._manifest_path
@@ -480,7 +480,7 @@ class DistributeTab(ctk.CTkFrame):
         self._entry_var.set(entry)
 
     # ------------------------------------------------------------------
-    # 依赖来源面板（Python 系体系）
+    # 依赖来源面板（Python 系构建系统）
     # ------------------------------------------------------------------
 
     def _update_dep_source(self) -> None:
@@ -678,7 +678,7 @@ class DistributeTab(ctk.CTkFrame):
             pass
 
     # ------------------------------------------------------------------
-    # persistence（按构建体系命名空间读写 project.json）
+    # persistence（按构建系统命名空间读写 project.json）
     # ------------------------------------------------------------------
 
     def _on_setting_changed(self, *args: Any) -> None:
@@ -702,7 +702,7 @@ class DistributeTab(ctk.CTkFrame):
                 self._pre_build_var.set(gen.get("pre_build", ""))
                 self._extra_files = list(gen.get("extra_files", []))
                 self._target_var.set(project.get("target", "zip"))
-                # uv/pip 的字段由 set_build_system 按当前体系加载
+                # uv/pip 的字段由 set_build_system 按当前系统加载
             finally:
                 self._loading = False
             self._refresh_extra_list()
@@ -712,7 +712,7 @@ class DistributeTab(ctk.CTkFrame):
         """Save current distribute settings to project config."""
         if not self._pm:
             return
-        # read-then-merge：保留顶层与其他命名空间（含未知体系）已有键
+        # read-then-merge：保留顶层与其他命名空间（含未知系统）已有键
         data = self._pm.read_project()
         data["target"] = self._target_var.get()
         cfg = data["build_systems"].setdefault(self._bs, {})

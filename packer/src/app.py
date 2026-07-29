@@ -28,7 +28,7 @@ _STATE_DIR = Path.home() / ".dghub-sdk-packer"
 _STATE_DIR.mkdir(parents=True, exist_ok=True)
 _STATE_FILE = _STATE_DIR / "state.json"
 
-# 构建体系下拉项 ↔ 存储值（由构建体系注册表生成）
+# 构建系统下拉项 ↔ 存储值（由构建系统注册表生成）
 _TYPE_LABELS = {bs_id: bs.label for bs_id, bs in BUILD_SYSTEMS.items()}
 _TYPE_VALUES = {v: k for k, v in _TYPE_LABELS.items()}
 
@@ -184,14 +184,14 @@ class App(ctk.CTk):
         self._dir_path_frame, self._dir_label, _ = _make_dir_row(
             bar, 0, "插件目录:", "未选择", self._select_shared_dir)
         
-        # Row 1: 输出目录（初始禁用；源码/工作目录已移入发布 tab 各体系视图）
+        # Row 1: 输出目录（初始禁用；源码/工作目录已移入发布 tab 各系统视图）
         self._out_path_frame, self._out_label, self._out_btns = _make_dir_row(
             bar, 1, "输出目录:", "", self._select_output_dir,
             reset_cmd=self._reset_output_dir)
         self._out_reset_btn = self._out_btns[1]
         
-        # Row 2: 构建体系（跨 tab 全局选择器，初始禁用）
-        ctk.CTkLabel(bar, text="构建体系:",
+        # Row 2: 构建系统（跨 tab 全局选择器，初始禁用）
+        ctk.CTkLabel(bar, text="构建系统:",
                      font=ctk.CTkFont(weight="bold")).grid(
             row=2, column=0, padx=(0, 5), pady=4, sticky="w")
         self._build_system = "uv"
@@ -215,24 +215,24 @@ class App(ctk.CTk):
             btn.pack_forget()
 
     def _on_build_system_changed(self, label: str) -> None:
-        """构建体系切换：持久化、加载新体系目录状态并切换视图。"""
+        """构建系统切换：持久化、加载新系统目录状态并切换视图。"""
         self._build_system = _TYPE_VALUES.get(label, "uv")
         if self._pm:
             project = self._pm.read_project()
             project["build_system"] = self._build_system
             self._pm.write_project(project)
-            # source_dir 按体系独立，切换后从新体系的命名空间重新加载
+            # source_dir 按系统独立，切换后从新系统的命名空间重新加载
             self._load_source_dir_state()
         self._dist_view.set_build_system(self._build_system)
         if self._output_dir:
             self._dist_view.refresh_preview(self._output_dir)
 
     def _view_key(self) -> str:
-        """当前体系对应的视图/目录行 key（uv/pip 共用 python 行）。"""
+        """当前系统对应的视图/目录行 key（uv/pip 共用 python 行）。"""
         return "generic" if self._build_system == "generic" else "python"
 
     def _load_source_dir_state(self) -> None:
-        """从当前体系命名空间加载项目根锚点并刷新视图显示。
+        """从当前系统命名空间加载项目根锚点并刷新视图显示。
 
         uv/pip：锚点 = 选定的依赖清单，项目根 = 清单所在目录；
         generic：锚点 = 工作目录。未设置时均回退插件目录。
@@ -261,10 +261,10 @@ class App(ctk.CTk):
         self._push_source_display()
 
     def _push_source_display(self) -> None:
-        """向两个视图推送各自的锚点显示（按体系独立取值）。"""
+        """向两个视图推送各自的锚点显示（按系统独立取值）。"""
         if not self._pm or not self._plugin_dir:
             return
-        # python 行显示 Python 系体系（uv）选定的清单文件
+        # python 行显示 Python 系构建系统（uv）选定的清单文件
         stored = self._pm.get_bs_config("uv").get("manifest", "")
         if stored:
             self._dist_view.set_source_display(
@@ -301,7 +301,7 @@ class App(ctk.CTk):
     # ------------------------------------------------------------------
 
     def _select_source_dir(self) -> None:
-        """发布 tab 视图内锚点行的选择回调（按当前体系持久化）。
+        """发布 tab 视图内锚点行的选择回调（按当前系统持久化）。
 
         generic 选工作目录；uv/pip 选依赖清单文件（项目根 = 其所在目录）。
         """
@@ -340,7 +340,7 @@ class App(ctk.CTk):
         self._clear_tab_highlight("发布")
 
     def _reset_source_dir(self) -> None:
-        """重置当前体系的锚点（generic 回插件目录；uv/pip 清除清单）。"""
+        """重置当前系统的锚点（generic 回插件目录；uv/pip 清除清单）。"""
         if not self._plugin_dir:
             return
         self._source_dir = self._plugin_dir
@@ -465,7 +465,7 @@ class App(ctk.CTk):
         return True
 
     def _validate_dist_tab(self) -> bool:
-        """Validate 发布 tab：体系相关静态校验委派给当前体系对象。"""
+        """Validate 发布 tab：系统相关静态校验委派给当前系统对象。"""
         bs = BUILD_SYSTEMS[self._build_system]
         ctx = self._make_build_context()
         errors = bs.validate(ctx)
@@ -547,7 +547,7 @@ class App(ctk.CTk):
             ctx.output_dir.mkdir(parents=True, exist_ok=True)
             target = self._dist_view.get_target()
 
-            # Step 4: 体系特有构建步骤（uv/pip: 依赖 vendor + 可选 exe；
+            # Step 4: 系统特有构建步骤（uv/pip: 依赖 vendor + 可选 exe；
             # generic: 可选 pre-build）
             if not bs.build_steps(ctx):
                 self._build_success = False
@@ -677,7 +677,7 @@ class App(ctk.CTk):
                                              _TYPE_LABELS["uv"]))
         self._dist_view.set_build_system(self._build_system)
 
-        # Source dir（按体系独立：加载当前体系并刷新两个视图的显示）
+        # Source dir（按系统独立：加载当前系统并刷新两个视图的显示）
         self._load_source_dir_state()
 
         # Enable output dir row

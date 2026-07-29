@@ -1,10 +1,10 @@
 """`.dghub-sdk/` project configuration management.
 
-project.json 为唯一配置文件（format_version 1，按构建体系命名空间分组）::
+project.json 为唯一配置文件（format_version 1，按构建系统命名空间分组）::
 
     {
       "format_version": 1,
-      "build_system": "uv",         # 当前选中的构建体系（命名空间键即判别符）
+      "build_system": "uv",         # 当前选中的构建系统（命名空间键即判别符）
       "output_dir": "",              # 插件级：输出目录（相对插件目录；空 = 自动）
       "target": "zip",               # 插件级：发布目标 zip / folder
       "build_systems": {
@@ -15,7 +15,7 @@ project.json 为唯一配置文件（format_version 1，按构建体系命名空
       }
     }
 
-- 基类字段（所有体系必有）：entry；uv 以 `manifest`（依赖清单文件）
+- 基类字段（所有系统必有）：entry；uv 以 `manifest`（依赖清单文件）
   为项目根锚点，generic 以 `source_dir`（工作目录）为锚点
 - 路径（manifest / source_dir / output_dir）存相对插件目录的路径，跨盘符时回退绝对路径
 - 未知命名空间在读-改-写时保留，不丢数据
@@ -40,7 +40,7 @@ _MANIFEST_DEFAULTS: dict[str, Any] = {
     "sdk": "1",
 }
 
-# 各构建体系配置的默认值（entry 为基类字段；每语言钦定一个体系）
+# 各构建系统配置的默认值（entry 为基类字段；每种语言对应一个系统）
 # uv（Python）：`manifest` = 依赖清单文件（相对插件目录；空 = 未选，
 # 项目根回退插件目录且跳过依赖打包），项目根 = 清单所在目录
 # generic：`source_dir` = 工作目录（原始文件选取根 + pre-build cwd）
@@ -132,7 +132,7 @@ class ProjectManager:
         )
 
     # ------------------------------------------------------------------
-    # Project config（唯一配置文件，含各构建体系命名空间）
+    # Project config（唯一配置文件，含各构建系统命名空间）
     # ------------------------------------------------------------------
 
     def _load_json(self, name: str) -> Any:
@@ -179,7 +179,7 @@ class ProjectManager:
 
     @staticmethod
     def _fill_defaults(raw: dict[str, Any]) -> dict[str, Any]:
-        """补全顶层与已知体系的默认键；未知键/未知命名空间原样保留。"""
+        """补全顶层与已知系统的默认键；未知键/未知命名空间原样保留。"""
         data = dict(raw)
         for k, v in _PROJECT_TOP_DEFAULTS.items():
             data.setdefault(k, v)
@@ -203,7 +203,7 @@ class ProjectManager:
             self._note(f"[警告] 配置重置落盘失败（{exc}），将在下次写入时重试")
 
     # ------------------------------------------------------------------
-    # 构建体系命名空间访问接口
+    # 构建系统命名空间访问接口
     # ------------------------------------------------------------------
 
     def get_bs_config(self, bs_id: str) -> dict[str, Any]:

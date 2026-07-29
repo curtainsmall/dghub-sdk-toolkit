@@ -1,7 +1,7 @@
-"""构建体系子类：一个构建体系 = 一个类，与 project.json 的命名空间一一对应。
+"""构建系统子类：一个构建系统 = 一个类，与 project.json 的命名空间一一对应。
 
 - ``id`` 即配置命名空间键名与类型判别符（"uv" / "generic"）
-- 每种语言钦定一个构建体系，下拉文案约定为「语言 - 构建体系」
+- 每种语言对应一个构建系统，下拉文案约定为「语言 - 构建系统」
   （如 "Python - uv"，未来 "C/C++ - CMake"）；generic 为 "(无构建系统)"
 - 依赖声明由用户项目自己的管理器维护（如 pyproject.toml），
   Packer 只读清单并 vendor 化，不修改项目源文件
@@ -61,7 +61,7 @@ def _run_logged(cmd: Any, log: Callable[[str], None],
 
 
 class BuildSystemSupport:
-    """构建体系基类：可用性预检、校验、构建步骤与产物清单收集。"""
+    """构建系统基类：可用性预检、校验、构建步骤与产物清单收集。"""
 
     id = ""
     label = ""
@@ -78,7 +78,7 @@ class BuildSystemSupport:
         return []
 
     def build_steps(self, ctx: BuildContext) -> bool:
-        """执行体系特有构建步骤（依赖 vendor / pre-build 等），失败返回 False。"""
+        """执行系统特有构建步骤（依赖 vendor / pre-build 等），失败返回 False。"""
         return True
 
     def manifest_entry(self, ctx: BuildContext) -> str:
@@ -113,8 +113,8 @@ class _PythonBase(BuildSystemSupport):
         if not entry:
             return ["入口文件不能为空"]
         if not entry.lower().endswith(".py"):
-            return [f"{self.label} 体系的入口必须是 .py 文件: {entry}，"
-                    "如为已构建产物请将构建体系切换为「(无构建系统)」"]
+            return [f"{self.label} 系统的入口必须是 .py 文件: {entry}，"
+                    "如为已构建产物请将构建系统切换为「(无构建系统)」"]
         if not (ctx.source_dir / entry).is_file():
             return [f"入口文件不存在: {entry}"]
         return []
@@ -194,7 +194,7 @@ class _PythonBase(BuildSystemSupport):
 
 
 class UvSystem(_PythonBase):
-    """Python 钦定体系 uv：清单为 pyproject.toml（也可选 requirements.txt，
+    """Python 构建系统 uv：清单为 pyproject.toml（也可选 requirements.txt，
     uv 同样能消费）。"""
 
     id = "uv"
@@ -327,7 +327,7 @@ def read_tool_dghub_entry(manifest: Path) -> str:
         return ""
 
 
-# 注册表：键 = 构建体系 id = 配置命名空间键名（每语言钦定一个体系）
+# 注册表：键 = 构建系统 id = 配置命名空间键名（每种语言对应一个系统）
 BUILD_SYSTEMS: dict[str, BuildSystemSupport] = {
     "uv": UvSystem(),
     "generic": GenericSupport(),
