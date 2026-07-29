@@ -1,7 +1,7 @@
 """Distribute tab — 打包内容、构建选项与发布目标（按构建系统双视图）。
 
 Python 式视图（uv / pip 共用）：依赖来源面板 + 源码目录 + entry + 构建选项 + 发布目标。
-(无构建系统) 视图：附加文件/规则清单 + 工作目录 + pre-build + entry + 发布目标。
+(无构建系统) 视图：附加文件/规则清单 + 收集目录 + pre-build（含执行目录）+ entry + 发布目标。
 两视图整帧切换，发布目标与预览共享状态；目录行各自绑定自己系统的 source_dir。
 """
 
@@ -21,6 +21,13 @@ from vendor_packer import _get_python_exe
 # 目标位置显示名 ↔ 存储值
 _DEST_LABELS = {"root": "根目录", "vendor": "vendor/"}
 _DEST_VALUES = {v: k for k, v in _DEST_LABELS.items()}
+
+# 右栏各行统一的前导标签宽度（像素）：保证输入框/目录显示区左对齐
+_LABEL_W = 92
+# 右栏各行尾部（选择按钮 + 重置槽位）总宽：无按钮的行用等宽占位，
+# 使所有输入区右边界一致、选择按钮列对齐
+_SELECT_BTN_W = 90
+_RESET_SLOT_W = 33
 
 
 class _ToolTip:
@@ -66,6 +73,8 @@ class DistributeTab(ctk.CTkFrame):
         self._bs = "uv"
         self._loading = False
         self._extra_files: list[dict[str, str]] = []
+        self._exec_dir = ""  # pre-build 执行目录（绝对路径；空 = 插件目录）
+        self._enabled = False
         # app.py 注入的目录选择/重置回调（目录状态由 App 统一管理）
         self._on_select_source = on_select_source
         self._on_reset_source = on_reset_source
@@ -75,11 +84,13 @@ class DistributeTab(ctk.CTkFrame):
 
     def _set_enabled(self, enabled: bool) -> None:
         state = "normal" if enabled else "disabled"
+        self._enabled = enabled
         for w in self._controls:
             try:
                 w.configure(state=state)
             except Exception:
                 pass
+        self._update_exec_state()
 
     # ------------------------------------------------------------------
     # UI 构建
@@ -117,6 +128,9 @@ class DistributeTab(ctk.CTkFrame):
         self._entry_var.trace_add("write", self._on_setting_changed)
         self._entry_generic_var.trace_add("write", self._on_setting_changed)
         self._pre_build_var.trace_add("write", self._on_setting_changed)
+        # pre-build 有无决定执行目录行的可用性
+        self._pre_build_var.trace_add(
+            "write", lambda *a: self._update_exec_state())
         self._build_exe_var.trace_add("write", self._on_setting_changed)
         self._include_sdk_var.trace_add("write", self._on_setting_changed)
         self._target_var.trace_add("write", self._on_setting_changed)
@@ -130,7 +144,7 @@ class DistributeTab(ctk.CTkFrame):
         frame.grid(row=row, column=0, sticky="ew", padx=10, pady=(10, 0))
         frame.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(frame, text=label,
+        ctk.CTkLabel(frame, text=label, width=_LABEL_W, anchor="w",
                      font=ctk.CTkFont(weight="bold")).grid(
             row=0, column=0, padx=(0, 5), sticky="w")
 
@@ -144,7 +158,7 @@ class DistributeTab(ctk.CTkFrame):
         path_lbl.pack(fill="x", expand=True, padx=8, pady=4)
         path_tip = _ToolTip(path_lbl, "")
 
-        btn = ctk.CTkButton(frame, text=btn_text, width=90,
+        btn = ctk.CTkButton(frame, text=btn_text, width=_SELECT_BTN_W,
                             command=self._request_select_source)
         btn.grid(row=0, column=2, padx=(0, 0))
         self._controls.append(btn)
@@ -152,7 +166,7 @@ class DistributeTab(ctk.CTkFrame):
         # 固定宽度槽位：重置按钮显隐不引起选择按钮列移位
         # （子控件用 pack 放置，必须用 pack_propagate 锁定尺寸）
         slot = ctk.CTkFrame(frame, fg_color="transparent",
-                            width=33, height=28)
+                            width=_RESET_SLOT_W, height=28)
         slot.grid(row=0, column=3)
         slot.pack_propagate(False)
         reset_btn = ctk.CTkButton(slot, text="↺", width=28,
@@ -186,6 +200,45 @@ class DistributeTab(ctk.CTkFrame):
             row["reset"].pack_forget()
         else:
             row["reset"].pack(side="left")
+
+    # -- 执行目录（pre-build 的 cwd，默认插件目录） ----------------------
+
+    def _update_exec_state(self) -> None:
+        """执行目录行随 pre-build 命令有无联动启用/禁用（显示但置灰）。"""
+        usable = self._enabled and bool(self._pre_build_var.get().strip())
+        state = "normal" if usable else "disabled"
+        self._exec_pick_btn.configure(state=state)
+        self._exec_reset_btn.configure(state=state)
+
+    def _refresh_exec_display(self) -> None:
+        """刷新执行目录显示：未设置时以灰字展示默认回退（插件目录）。"""
+        if self._exec_dir:
+            text = Path(self._exec_dir).as_posix()
+            color = ("gray10", "gray90")
+            self._exec_reset_btn.pack(side="left")
+        else:
+            text = "插件目录（默认）"
+            color = ("gray60", "gray60")
+            self._exec_reset_btn.pack_forget()
+        self._exec_dir_lbl.configure(text=text, text_color=color)
+        self._exec_dir_tip._text = text
+
+    def _pick_exec_dir(self) -> None:
+        d = filedialog.askdirectory(title="选择预构建命令执行目录")
+        if not d:
+            return
+        self._exec_dir = d
+        self._refresh_exec_display()
+        self._on_setting_changed()
+
+    def _reset_exec_dir(self) -> None:
+        self._exec_dir = ""
+        self._refresh_exec_display()
+        self._on_setting_changed()
+
+    def get_exec_dir(self) -> str:
+        """pre-build 执行目录绝对路径（空 = 未设置，构建时回退插件目录）。"""
+        return self._exec_dir
 
     # -- Python 式视图（Python 系构建系统共用） -----------------------------
 
@@ -232,15 +285,17 @@ class DistributeTab(ctk.CTkFrame):
         right.grid_columnconfigure(0, weight=1)
 
         # 依赖清单行（项目根锚点：uv/pip 各自记忆，未选 = 插件目录）
-        self._build_source_row(right, row=0, key="python", label="依赖清单:",
+        self._build_source_row(right, row=0, key="python", label="依赖清单",
                                btn_text="选择文件")
 
         # entry 行
         entry_frame = ctk.CTkFrame(right, fg_color="transparent")
         entry_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(10, 5))
         entry_frame.grid_columnconfigure(1, weight=1)
-        label_frame = ctk.CTkFrame(entry_frame, fg_color="transparent")
+        label_frame = ctk.CTkFrame(entry_frame, fg_color="transparent",
+                                   width=_LABEL_W, height=28)
         label_frame.grid(row=0, column=0, sticky="w")
+        label_frame.pack_propagate(False)
         ctk.CTkLabel(label_frame, text="入口文件 ",
                      font=ctk.CTkFont(weight="bold")).pack(side="left")
         ctk.CTkLabel(label_frame, text="*", text_color="red",
@@ -289,8 +344,8 @@ class DistributeTab(ctk.CTkFrame):
 
         # 顶部说明：本系统只打包，不构建
         ctk.CTkLabel(view,
-                     text="不使用任何构建器：可选执行 pre-build 命令后，"
-                          "直接打包工作目录内的原始文件",
+                     text="不使用任何构建器：可选执行预构建命令后，"
+                          "直接打包收集目录内的原始文件",
                      font=ctk.CTkFont(size=11),
                      text_color=("gray40", "gray60")).grid(
             row=0, column=0, columnspan=2, sticky="w", padx=15, pady=(8, 0))
@@ -347,55 +402,97 @@ class DistributeTab(ctk.CTkFrame):
         self._extra_list.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
         self._controls.append(self._extra_list)
 
-        # ---- 右栏：工作目录 + pre-build + entry + 发布目标 ----
+        # ---- 右栏：预构建命令（含执行目录）+ 收集目录 + entry + 发布目标 ----
+        # 行序遵循构建时序：先执行预构建，再从收集目录取产物
         right = ctk.CTkFrame(view)
         right.grid(row=1, column=1, sticky="nsew", padx=(5, 10), pady=10)
         right.grid_columnconfigure(0, weight=1)
 
-        # 工作目录行（pre-build 的 cwd + 原始文件选取根）
-        self._build_source_row(right, row=0, key="generic", label="工作目录:")
-
-        # pre-build 命令行
+        # 预构建命令行
         pb_frame = ctk.CTkFrame(right, fg_color="transparent")
-        pb_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(10, 0))
+        pb_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 0))
         pb_frame.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(pb_frame, text="构建命令 (pre-build)",
+        ctk.CTkLabel(pb_frame, text="预构建命令", width=_LABEL_W, anchor="w",
                      font=ctk.CTkFont(weight="bold")).grid(
             row=0, column=0, padx=(0, 5), sticky="w")
         self._pre_build_entry = ctk.CTkEntry(
             pb_frame, textvariable=self._pre_build_var,
-            placeholder_text="可选，如 dotnet build -c Release，构建前在工作目录执行")
+            placeholder_text="可选，如 dotnet build -c Release，构建前在执行目录执行")
         self._pre_build_entry.grid(row=0, column=1, sticky="ew", padx=5)
         self._controls.append(self._pre_build_entry)
+        # 尾部等宽占位：本行无选择按钮，占位使输入区右边界与下方目录行一致
+        ctk.CTkFrame(pb_frame, fg_color="transparent",
+                     width=_SELECT_BTN_W, height=28).grid(row=0, column=2)
+        ctk.CTkFrame(pb_frame, fg_color="transparent",
+                     width=_RESET_SLOT_W, height=28).grid(row=0, column=3)
+
+        # 执行目录行（预构建命令的 cwd；仅填写了命令时可用，默认插件目录）
+        ex_frame = ctk.CTkFrame(right, fg_color="transparent")
+        ex_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(10, 0))
+        ex_frame.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(ex_frame, text="执行目录", width=_LABEL_W, anchor="w",
+                     font=ctk.CTkFont(weight="bold")).grid(
+            row=0, column=0, padx=(0, 5), sticky="w")
+        exec_path_frame = ctk.CTkFrame(ex_frame, fg_color=("gray85", "gray25"),
+                                       border_width=0, corner_radius=6)
+        exec_path_frame.grid(row=0, column=1, sticky="ew", padx=5)
+        self._exec_dir_lbl = ctk.CTkLabel(exec_path_frame, text="",
+                                          fg_color="transparent",
+                                          anchor="w", width=1)
+        self._exec_dir_lbl.pack(fill="x", expand=True, padx=8, pady=4)
+        self._exec_dir_tip = _ToolTip(self._exec_dir_lbl, "")
+        self._exec_pick_btn = ctk.CTkButton(ex_frame, text="选择目录",
+                                            width=_SELECT_BTN_W,
+                                            command=self._pick_exec_dir)
+        self._exec_pick_btn.grid(row=0, column=2)
+        # 固定宽度槽位：重置按钮显隐不引起选择按钮列移位
+        exec_slot = ctk.CTkFrame(ex_frame, fg_color="transparent",
+                                 width=_RESET_SLOT_W, height=28)
+        exec_slot.grid(row=0, column=3)
+        exec_slot.pack_propagate(False)
+        self._exec_reset_btn = ctk.CTkButton(
+            exec_slot, text="↺", width=28, command=self._reset_exec_dir,
+            fg_color="transparent", hover_color=("gray70", "gray40"),
+            font=ctk.CTkFont(size=16))
+        _ToolTip(self._exec_reset_btn, "恢复默认")
+        self._refresh_exec_display()
+
+        # 收集目录行（原始文件选取根：entry / 附加文件 / glob 均相对此目录）
+        self._build_source_row(right, row=2, key="generic", label="收集目录")
 
         # entry 行（可编辑 + 选择器辅助：pre-build 生成物可手工输入）
         entry_frame = ctk.CTkFrame(right, fg_color="transparent")
-        entry_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(10, 5))
+        entry_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=(10, 5))
         entry_frame.grid_columnconfigure(1, weight=1)
-        label_frame = ctk.CTkFrame(entry_frame, fg_color="transparent")
+        label_frame = ctk.CTkFrame(entry_frame, fg_color="transparent",
+                                   width=_LABEL_W, height=28)
         label_frame.grid(row=0, column=0, sticky="w")
+        label_frame.pack_propagate(False)
         ctk.CTkLabel(label_frame, text="入口文件 ",
                      font=ctk.CTkFont(weight="bold")).pack(side="left")
         ctk.CTkLabel(label_frame, text="*", text_color="red",
                      font=ctk.CTkFont(size=14)).pack(side="left")
         self._entry_generic_entry = ctk.CTkEntry(
             entry_frame, textvariable=self._entry_generic_var,
-            placeholder_text="相对工作目录，可为 pre-build 生成物")
+            placeholder_text="相对收集目录，可为预构建生成物")
         self._entry_generic_entry.grid(row=0, column=1, sticky="ew", padx=5)
         self._controls.append(self._entry_generic_entry)
         self._pick_entry_btn = ctk.CTkButton(entry_frame, text="选择文件",
-                                             width=80,
+                                             width=_SELECT_BTN_W,
                                              command=self._pick_generic_entry)
-        self._pick_entry_btn.grid(row=0, column=2, padx=(0, 5))
+        self._pick_entry_btn.grid(row=0, column=2, padx=(0, 0))
         self._controls.append(self._pick_entry_btn)
+        # 尾部等宽占位：与目录行的重置槽位对齐，使选择按钮列一致
+        ctk.CTkFrame(entry_frame, fg_color="transparent",
+                     width=_RESET_SLOT_W, height=28).grid(row=0, column=3)
 
         self._generic_hint = ctk.CTkLabel(right, text="",
                                           font=ctk.CTkFont(size=11),
                                           text_color="#FF4444")
-        self._generic_hint.grid(row=3, column=0, sticky="w", padx=10)
+        self._generic_hint.grid(row=4, column=0, sticky="w", padx=10)
 
         # 发布目标
-        self._build_target_section(right, row=4)
+        self._build_target_section(right, row=5)
 
     # -- 共享分区 -------------------------------------------------------
 
@@ -458,7 +555,7 @@ class DistributeTab(ctk.CTkFrame):
         return self._bs
 
     def set_source_dir(self, d: str) -> None:
-        """由 app.py 推送当前系统的项目根/工作目录，文件选择器/规则求值以此为界。"""
+        """由 app.py 推送当前系统的项目根/收集目录，文件选择器/规则求值以此为界。"""
         self._source_dir = d
         if self._bs == "generic":
             self._refresh_extra_list()
@@ -517,7 +614,7 @@ class DistributeTab(ctk.CTkFrame):
     # ------------------------------------------------------------------
 
     def _rel_to_source(self, path: str) -> Optional[str]:
-        """将绝对路径转为相对工作目录的路径；不在工作目录内返回 None。"""
+        """将绝对路径转为相对收集目录的路径；不在收集目录内返回 None。"""
         src = self._source_dir or self._plugin_dir
         if not src:
             return None
@@ -534,7 +631,7 @@ class DistributeTab(ctk.CTkFrame):
             return
         rel = self._rel_to_source(f)
         if rel is None:
-            self._generic_hint.configure(text="入口文件必须位于工作目录内")
+            self._generic_hint.configure(text="入口文件必须位于收集目录内")
             return
         self._generic_hint.configure(text="")
         self._entry_generic_var.set(rel)
@@ -564,7 +661,7 @@ class DistributeTab(ctk.CTkFrame):
             self._extra_files.append({"path": rel, "dest": dest})
             existing.add(rel)
         self._generic_hint.configure(
-            text="已跳过工作目录外的文件" if rejected else "")
+            text="已跳过收集目录外的文件" if rejected else "")
         self._refresh_extra_list()
         self._auto_save_extra_files()
 
@@ -700,6 +797,10 @@ class DistributeTab(ctk.CTkFrame):
                 gen = project["build_systems"]["generic"]
                 self._entry_generic_var.set(gen.get("entry", ""))
                 self._pre_build_var.set(gen.get("pre_build", ""))
+                rel_exec = gen.get("exec_dir", "")
+                self._exec_dir = (self._pm.to_absolute(rel_exec)
+                                  if rel_exec else "")
+                self._refresh_exec_display()
                 self._extra_files = list(gen.get("extra_files", []))
                 self._target_var.set(project.get("target", "zip"))
                 # uv/pip 的字段由 set_build_system 按当前系统加载
@@ -719,6 +820,8 @@ class DistributeTab(ctk.CTkFrame):
         if self._bs == "generic":
             cfg["entry"] = self._entry_generic_var.get()
             cfg["pre_build"] = self._pre_build_var.get()
+            cfg["exec_dir"] = (self._pm.to_relative(self._exec_dir)
+                               if self._exec_dir else "")
         else:
             cfg["entry"] = self._entry_var.get()
             cfg["build_exe"] = self._build_exe_var.get()

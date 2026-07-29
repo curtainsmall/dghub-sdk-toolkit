@@ -184,7 +184,7 @@ class App(ctk.CTk):
         self._dir_path_frame, self._dir_label, _ = _make_dir_row(
             bar, 0, "插件目录:", "未选择", self._select_shared_dir)
         
-        # Row 1: 输出目录（初始禁用；源码/工作目录已移入发布 tab 各系统视图）
+        # Row 1: 输出目录（初始禁用；源码/收集目录已移入发布 tab 各系统视图）
         self._out_path_frame, self._out_label, self._out_btns = _make_dir_row(
             bar, 1, "输出目录:", "", self._select_output_dir,
             reset_cmd=self._reset_output_dir)
@@ -235,7 +235,7 @@ class App(ctk.CTk):
         """从当前系统命名空间加载项目根锚点并刷新视图显示。
 
         uv/pip：锚点 = 选定的依赖清单，项目根 = 清单所在目录；
-        generic：锚点 = 工作目录。未设置时均回退插件目录。
+        generic：锚点 = 收集目录。未设置时均回退插件目录。
         """
         if not self._pm or not self._plugin_dir:
             return
@@ -272,7 +272,7 @@ class App(ctk.CTk):
         else:
             self._dist_view.set_source_display(
                 "python", "未选择（项目根 = 插件目录）", True)
-        # generic 行显示工作目录
+        # generic 行显示收集目录
         stored = self._pm.get_bs_config("generic").get("source_dir", "")
         path = self._pm.to_absolute(stored) if stored else self._plugin_dir
         self._dist_view.set_source_display("generic", _norm(path), not stored)
@@ -303,10 +303,10 @@ class App(ctk.CTk):
     def _select_source_dir(self) -> None:
         """发布 tab 视图内锚点行的选择回调（按当前系统持久化）。
 
-        generic 选工作目录；uv/pip 选依赖清单文件（项目根 = 其所在目录）。
+        generic 选收集目录；uv/pip 选依赖清单文件（项目根 = 其所在目录）。
         """
         if self._build_system == "generic":
-            d = filedialog.askdirectory(title="选择工作目录")
+            d = filedialog.askdirectory(title="选择收集目录")
             if not d:
                 return
             self._source_dir = d

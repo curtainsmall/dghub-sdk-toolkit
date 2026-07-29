@@ -223,7 +223,11 @@ class UvSystem(_PythonBase):
 # ---------------------------------------------------------------------------
 
 class GenericSupport(BuildSystemSupport):
-    """(无构建系统)：可选 pre-build 命令后，按清单/规则打包工作目录内文件。"""
+    """(无构建系统)：可选 pre-build 命令后，按清单/规则打包收集目录内文件。
+
+    收集目录（source_dir）= entry / 附加文件 / glob 的根；
+    pre-build 在独立的执行目录运行（未设置时回退插件目录）。
+    """
 
     id = "generic"
     label = "(无构建系统)"
@@ -240,9 +244,9 @@ class GenericSupport(BuildSystemSupport):
         if not cmd:
             ctx.log("(无构建系统)：无 pre-build 命令，直接收集文件")
             return True
-        ctx.log(f"执行 pre-build（工作目录 {ctx.source_dir}）: {cmd}")
-        if not _run_logged(cmd, ctx.log, cwd=str(ctx.source_dir),
-                           shell=True):
+        exec_dir = ctx.dist_view.get_exec_dir() or str(ctx.plugin_dir)
+        ctx.log(f"执行 pre-build（执行目录 {exec_dir}）: {cmd}")
+        if not _run_logged(cmd, ctx.log, cwd=exec_dir, shell=True):
             ctx.log("[错误] pre-build 命令失败（非零返回码）")
             return False
         ctx.log("pre-build 完成")
@@ -301,7 +305,7 @@ class GenericSupport(BuildSystemSupport):
 
 
 def evaluate_pattern(workdir: Path, pattern: str) -> list[str]:
-    """对工作目录求值 glob 规则，返回相对路径列表（仅文件，排序）。"""
+    """对收集目录求值 glob 规则，返回相对路径列表（仅文件，排序）。"""
     try:
         return sorted(
             p.relative_to(workdir).as_posix()

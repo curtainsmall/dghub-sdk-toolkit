@@ -11,13 +11,13 @@ project.json 为唯一配置文件（format_version 1，按构建系统命名空
         "uv":      {"manifest": "", "entry": "main.py",
                     "build_exe": true, "include_sdk": true},
         "generic": {"source_dir": "", "entry": "",
-                    "pre_build": "", "extra_files": []}
+                    "pre_build": "", "exec_dir": "", "extra_files": []}
       }
     }
 
 - 基类字段（所有系统必有）：entry；uv 以 `manifest`（依赖清单文件）
-  为项目根锚点，generic 以 `source_dir`（工作目录）为锚点
-- 路径（manifest / source_dir / output_dir）存相对插件目录的路径，跨盘符时回退绝对路径
+  为项目根锚点，generic 以 `source_dir`（收集目录）为锚点
+- 路径（manifest / source_dir / exec_dir / output_dir）存相对插件目录的路径，跨盘符时回退绝对路径
 - 未知命名空间在读-改-写时保留，不丢数据
 - 旧格式（develop 平铺、feature 分支中间格式）执行破坏性升级：
   直接重置为默认值并落盘、删除旧 deps.json（manifest.json 不受影响）
@@ -43,12 +43,13 @@ _MANIFEST_DEFAULTS: dict[str, Any] = {
 # 各构建系统配置的默认值（entry 为基类字段；每种语言对应一个系统）
 # uv（Python）：`manifest` = 依赖清单文件（相对插件目录；空 = 未选，
 # 项目根回退插件目录且跳过依赖打包），项目根 = 清单所在目录
-# generic：`source_dir` = 工作目录（原始文件选取根 + pre-build cwd）
+# generic：`source_dir` = 收集目录（原始文件选取根）；
+# `exec_dir` = pre-build 执行目录（空 = 插件目录）
 _BS_DEFAULTS: dict[str, dict[str, Any]] = {
     "uv": {"manifest": "", "entry": "main.py",
            "build_exe": True, "include_sdk": True},
     "generic": {"source_dir": "", "entry": "",
-                "pre_build": "", "extra_files": []},
+                "pre_build": "", "exec_dir": "", "extra_files": []},
 }
 
 # 顶层插件级共享键默认值

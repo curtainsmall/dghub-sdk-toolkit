@@ -223,12 +223,26 @@ def test_generic_build_steps_prebuild_failure(make_ctx):
     assert any("pre-build 命令失败" in line for line in logs)
 
 
-def test_generic_build_steps_prebuild_creates_file(make_ctx):
-    # pre-build 在工作目录（source_dir）执行
-    ctx, _ = make_ctx(StubDistView(
+def test_generic_prebuild_runs_in_plugin_dir_by_default(make_ctx):
+    # 未设置执行目录时，pre-build 在插件目录执行
+    ctx, logs = make_ctx(StubDistView(
         entry="app.exe", pre_build="echo built > artifact.txt"))
     assert GenericSupport().build_steps(ctx) is True
-    assert (ctx.source_dir / "artifact.txt").is_file()
+    assert (ctx.plugin_dir / "artifact.txt").is_file()
+    assert not (ctx.source_dir / "artifact.txt").exists()
+    assert any("执行目录" in line for line in logs)
+
+
+def test_generic_prebuild_runs_in_exec_dir_when_set(make_ctx, tmp_path):
+    # 显式设置执行目录后，pre-build 在该目录执行
+    exec_dir = tmp_path / "proj_root"
+    exec_dir.mkdir()
+    ctx, _ = make_ctx(StubDistView(
+        entry="app.exe", pre_build="echo built > artifact.txt",
+        exec_dir=str(exec_dir)))
+    assert GenericSupport().build_steps(ctx) is True
+    assert (exec_dir / "artifact.txt").is_file()
+    assert not (ctx.plugin_dir / "artifact.txt").exists()
 
 
 # ---------------------------------------------------------------------------

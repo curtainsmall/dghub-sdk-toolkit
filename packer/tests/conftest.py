@@ -21,6 +21,7 @@ class StubDistView:
         build_exe: bool = False,
         include_sdk: bool = False,
         pre_build: str = "",
+        exec_dir: str = "",
         extra_files: list[dict[str, str]] | None = None,
     ) -> None:
         self.entry = entry
@@ -28,6 +29,7 @@ class StubDistView:
         self.build_exe = build_exe
         self.include_sdk = include_sdk
         self.pre_build = pre_build
+        self.exec_dir = exec_dir
         self.extra_files = extra_files or []
 
     def get_entry(self) -> str:
@@ -44,6 +46,9 @@ class StubDistView:
 
     def get_pre_build(self) -> str:
         return self.pre_build
+
+    def get_exec_dir(self) -> str:
+        return self.exec_dir
 
     def get_extra_files(self) -> list[dict[str, str]]:
         return self.extra_files
