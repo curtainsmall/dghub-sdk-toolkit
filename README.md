@@ -14,24 +14,33 @@
 - 强度控制
 - 设备状态监听
 
+### 安装（PyPI 为官方分发渠道）：
+
+```bash
+pip install dghub-sdk
+```
+
+### 使用
 ```python
 import dghub_sdk
 
 with dghub_sdk.Agent() as agent:
     agent.on_config_changed = lambda key, value: print(key, value)
+    agent.wait_ready(timeout=10)   # 等待握手完成后再 poll
     while True:
         agent.poll()
 ```
 
 详细用法参见 [SDK 使用指南](docs/sdk.md)。
 
-## Plugin Packer
+## Packer
 
 位于 `packer/`，图形化桌面应用，帮助开发者打包和分发 DGHub 插件。
 
-- Manifest 编辑器 — 可视化编辑 `manifest.json`
-- 依赖打包 — 将第三方 Python 包打包到 `vendor/`
-- 发布 — 导出 `.zip` 或构建为独立 `.exe`
+- 多构建系统 — `Python - uv`（从源码构建）或 `(无构建系统)`（直接打包已有产物）
+- Manifest 编辑器 — 可视化编辑 `manifest.json` 与 `config_schema`
+- 依赖管理 — 依赖由项目自身清单（`pyproject.toml`）声明，构建时安装到 `vendor/`
+- 发布 — 导出 `.zip` 或文件夹，Python 项目可选构建为独立 `.exe`
 
 ### 下载
 

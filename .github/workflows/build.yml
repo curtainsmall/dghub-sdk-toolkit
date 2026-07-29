@@ -150,7 +150,6 @@ jobs:
 
             ---
             ${{ steps.sdknote.outputs.note }}
-          generate_release_notes: true
           files: release-files/*
 
   publish-pypi:

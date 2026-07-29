@@ -7,7 +7,14 @@
 版本号为 toolkit 发布批次号，Packer 与 SDK 统一使用；SDK 仅在自身有变更
 的批次发布至 PyPI（版本跳号为预期行为）。
 
-## [Unreleased]
+## [0.2.1] - 2026-07-29
+
+### 修复
+
+- 修正 README 中过时的信息：SDK 快速示例补充 `wait_ready()` 调用
+  （0.2.0 起 `with Agent()` 不再自动等待握手）；Packer 功能列表更新为
+  构建系统驱动模型（多构建系统、依赖由项目清单声明），移除已废弃的
+  「依赖打包」旧描述；补充 SDK 的 PyPI 安装说明
 
 ## [0.2.0] - 2026-07-29
 
@@ -61,6 +68,6 @@
 
 历史版本，详见 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases)。
 
-[Unreleased]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.2.0...HEAD
+[0.2.1]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/curtainsmall/dghub-sdk-toolkit/releases/tag/v0.1.3
