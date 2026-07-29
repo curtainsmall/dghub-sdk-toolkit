@@ -21,14 +21,17 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          uv sync
         working-directory: packer
 
       - name: Build with PyInstaller
         run: |
-          python build_exe.py
+          uv run build_exe.py
         env:
           CI_VERSION_TAG: ${{ github.ref_name }}
         working-directory: packer

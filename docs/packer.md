@@ -9,11 +9,11 @@
 从 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases) 下载
 `DGHubPluginPacker.exe`，双击即可运行，无需安装。
 
-如需从源码运行：
+如需从源码运行（需要 [uv](https://docs.astral.sh/uv/)）：
 
 ```bash
-pip install -r packer/requirements.txt
-python -m packer.src.main
+uv sync --project packer
+uv run --project packer python -m packer.src.main
 ```
 
 ---
@@ -71,10 +71,10 @@ python -m packer.src.main
 将 Plugin Packer 自身打包为独立可执行文件：
 
 ```bash
-pip install -r packer/requirements.txt
-python packer/build_exe.py
+uv sync --project packer
+uv run --project packer python packer/build_exe.py
 ```
 
 产物输出到 `packer/bin/DGHubPluginPacker.exe`。
 
-> 构建环境需要安装 PyInstaller：`pip install pyinstaller`
+> 依赖（含 PyInstaller）由 `packer/pyproject.toml` 声明，`uv sync` 会自动安装

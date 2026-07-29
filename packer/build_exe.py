@@ -2,7 +2,7 @@
 
 Usage:
     python build_exe.py [--version X.Y.Z]
-    # or after pip install -r requirements.txt
+    # or with uv: uv sync && uv run build_exe.py
 """
 
 import argparse
