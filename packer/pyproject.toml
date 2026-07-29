@@ -8,6 +8,14 @@ dependencies = [
     "pyinstaller>=6.0.0",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.uv]
 # Packer 是应用而非库，uv sync 仅安装依赖，不构建自身
 package = false

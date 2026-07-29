@@ -1,10 +1,11 @@
-name: SDK Tests
+name: Tests
 
 on:
   pull_request:
   push:
     branches:
       - main
+      - develop
 
 permissions:
   contents: read
@@ -29,3 +30,22 @@ jobs:
       - name: Run SDK tests
         run: python -m pytest -q
         working-directory: sdk/python
+
+  test-packer:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Run Packer logic tests
+        run: uv run --extra test pytest -q
+        working-directory: packer
