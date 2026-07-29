@@ -15,18 +15,22 @@ def _norm(p: str) -> str:
 
 import customtkinter as ctk
 
-from dependency_tab import DependencyTab
 from distribute_tab import DistributeTab
-from exe_builder import build_plugin_exe
+from build_systems import (BUILD_SYSTEMS, BuildContext, BuildError,
+                           read_tool_dghub_entry)
 from log_tab import LogTab
 from manifest_tab import ManifestTab
-from project_manager import ProjectManager, project_exists
+from project_manager import (ProjectManager, project_exists,
+                             UnsupportedFormatError)
 from settings_tab import SettingsTab
-from vendor_packer import pack_dependencies, is_dghub_base_dep, _is_stdlib
 
 _STATE_DIR = Path.home() / ".dghub-sdk-packer"
 _STATE_DIR.mkdir(parents=True, exist_ok=True)
 _STATE_FILE = _STATE_DIR / "state.json"
+
+# 构建系统下拉项 ↔ 存储值（由构建系统注册表生成）
+_TYPE_LABELS = {bs_id: bs.label for bs_id, bs in BUILD_SYSTEMS.items()}
+_TYPE_VALUES = {v: k for k, v in _TYPE_LABELS.items()}
 
 
 class _ToolTip:
@@ -81,6 +85,7 @@ class App(ctk.CTk):
         self._pm: Optional[ProjectManager] = None
         self._running = False
         self._build_success = False
+        self._build_system = "uv"
 
         # -- top bar (cross-tab) --
         self._build_top_bar()
@@ -91,7 +96,6 @@ class App(ctk.CTk):
 
         # -- tabs --
         self._info_tab = self._tab_view.add("信息")
-        self._dep_tab = self._tab_view.add("依赖")
         self._dist_tab = self._tab_view.add("发布")
         self._settings_tab = self._tab_view.add("设置")
         self._log_tab = self._tab_view.add("日志")
@@ -100,13 +104,16 @@ class App(ctk.CTk):
         self._info_view = ManifestTab(self._info_tab)
         self._info_view.pack(fill="both", expand=True)
 
-        self._dep_view = DependencyTab(self._dep_tab)
-        self._dep_view.pack(fill="both", expand=True)
-
-        self._dist_view = DistributeTab(self._dist_tab)
+        self._dist_view = DistributeTab(
+            self._dist_tab,
+            on_select_source=self._select_source_dir,
+            on_reset_source=self._reset_source_dir)
         self._dist_view.pack(fill="both", expand=True)
 
-        self._settings_view = SettingsTab(self._settings_tab)
+        self._settings_view = SettingsTab(
+            self._settings_tab,
+            on_pypi_index_changed=lambda url: self._save_state_key(
+                "pypi_index", url))
         self._settings_view.pack(fill="both", expand=True)
 
         self._log_view = LogTab(self._log_tab)
@@ -114,6 +121,10 @@ class App(ctk.CTk):
 
         # -- bottom bar (cross-tab) --
         self._build_bottom_bar()
+
+        # -- restore global settings --
+        self._settings_view.set_pypi_index(
+            self._read_state().get("pypi_index", ""))
 
         # -- auto-load last plugin dir --
         self._auto_open_last_plugin_dir()
@@ -130,7 +141,6 @@ class App(ctk.CTk):
         BTN_W = 100
         
         # Store buttons for state management
-        self._src_btns: list[ctk.CTkBaseClass] = []
         self._out_btns: list[ctk.CTkBaseClass] = []
         
         def _make_dir_row(bar, row, label, text, select_cmd, reset_cmd=None):
@@ -174,20 +184,26 @@ class App(ctk.CTk):
         self._dir_path_frame, self._dir_label, _ = _make_dir_row(
             bar, 0, "插件目录:", "未选择", self._select_shared_dir)
         
-        # Row 1: 源码目录（初始禁用）
-        self._src_path_frame, self._src_label, self._src_btns = _make_dir_row(
-            bar, 1, "源码目录:", "", self._select_source_dir,
-            reset_cmd=self._reset_source_dir)
-        self._src_reset_btn = self._src_btns[1]
-        
-        # Row 2: 输出目录（初始禁用）
+        # Row 1: 输出目录（初始禁用；源码/收集目录已移入发布 tab 各系统视图）
         self._out_path_frame, self._out_label, self._out_btns = _make_dir_row(
-            bar, 2, "输出目录:", "", self._select_output_dir,
+            bar, 1, "输出目录:", "", self._select_output_dir,
             reset_cmd=self._reset_output_dir)
         self._out_reset_btn = self._out_btns[1]
         
-        # Initially disable source and output rows
-        for b in self._src_btns + self._out_btns:
+        # Row 2: 构建系统（跨 tab 全局选择器，初始禁用）
+        ctk.CTkLabel(bar, text="构建系统:",
+                     font=ctk.CTkFont(weight="bold")).grid(
+            row=2, column=0, padx=(0, 5), pady=4, sticky="w")
+        self._build_system = "uv"
+        self._type_menu = ctk.CTkOptionMenu(
+            bar, width=200, values=list(_TYPE_LABELS.values()),
+            command=self._on_build_system_changed)
+        self._type_menu.set(_TYPE_LABELS["uv"])
+        self._type_menu.grid(row=2, column=1, padx=5, pady=4, sticky="w")
+        self._type_menu.configure(state="disabled")
+        
+        # Initially disable output row
+        for b in self._out_btns:
             b.configure(state="disabled")
 
     @staticmethod
@@ -197,6 +213,69 @@ class App(ctk.CTk):
             btn.pack(side="left", padx=(5, 0))
         else:
             btn.pack_forget()
+
+    def _on_build_system_changed(self, label: str) -> None:
+        """构建系统切换：持久化、加载新系统目录状态并切换视图。"""
+        self._build_system = _TYPE_VALUES.get(label, "uv")
+        if self._pm:
+            project = self._pm.read_project()
+            project["build_system"] = self._build_system
+            self._pm.write_project(project)
+            # source_dir 按系统独立，切换后从新系统的命名空间重新加载
+            self._load_source_dir_state()
+        self._dist_view.set_build_system(self._build_system)
+        if self._output_dir:
+            self._dist_view.refresh_preview(self._output_dir)
+
+    def _view_key(self) -> str:
+        """当前系统对应的视图/目录行 key（uv/pip 共用 python 行）。"""
+        return "generic" if self._build_system == "generic" else "python"
+
+    def _load_source_dir_state(self) -> None:
+        """从当前系统命名空间加载项目根锚点并刷新视图显示。
+
+        uv/pip：锚点 = 选定的依赖清单，项目根 = 清单所在目录；
+        generic：锚点 = 收集目录。未设置时均回退插件目录。
+        """
+        if not self._pm or not self._plugin_dir:
+            return
+        cfg = self._pm.get_bs_config(self._build_system)
+        if self._build_system == "generic":
+            stored = cfg.get("source_dir", "")
+            self._source_dir = (self._pm.to_absolute(stored) if stored
+                                else self._plugin_dir)
+            self._source_auto = not stored
+            self._dist_view.set_manifest("")
+        else:
+            stored = cfg.get("manifest", "")
+            if stored:
+                manifest_abs = self._pm.to_absolute(stored)
+                self._source_dir = str(Path(manifest_abs).parent)
+                self._source_auto = False
+                self._dist_view.set_manifest(manifest_abs)
+            else:
+                self._source_dir = self._plugin_dir
+                self._source_auto = True
+                self._dist_view.set_manifest("")
+        self._dist_view.set_source_dir(self._source_dir)
+        self._push_source_display()
+
+    def _push_source_display(self) -> None:
+        """向两个视图推送各自的锚点显示（按系统独立取值）。"""
+        if not self._pm or not self._plugin_dir:
+            return
+        # python 行显示 Python 系构建系统（uv）选定的清单文件
+        stored = self._pm.get_bs_config("uv").get("manifest", "")
+        if stored:
+            self._dist_view.set_source_display(
+                "python", _norm(self._pm.to_absolute(stored)), False)
+        else:
+            self._dist_view.set_source_display(
+                "python", "未选择（项目根 = 插件目录）", True)
+        # generic 行显示收集目录
+        stored = self._pm.get_bs_config("generic").get("source_dir", "")
+        path = self._pm.to_absolute(stored) if stored else self._plugin_dir
+        self._dist_view.set_source_display("generic", _norm(path), not stored)
 
     # ------------------------------------------------------------------
     # bottom bar
@@ -222,36 +301,60 @@ class App(ctk.CTk):
     # ------------------------------------------------------------------
 
     def _select_source_dir(self) -> None:
-        d = filedialog.askdirectory(title="选择源码目录")
-        if not d:
-            return
-        self._source_dir = d
-        self._source_auto = False
-        self._src_label.configure(text=_norm(d), text_color=("gray10", "gray90"))
-        self._src_path_frame.configure(border_width=0)
-        self._set_reset_visible(self._src_reset_btn, True)
+        """发布 tab 视图内锚点行的选择回调（按当前系统持久化）。
+
+        generic 选收集目录；uv/pip 选依赖清单文件（项目根 = 其所在目录）。
+        """
+        if self._build_system == "generic":
+            d = filedialog.askdirectory(title="选择收集目录")
+            if not d:
+                return
+            self._source_dir = d
+            self._source_auto = False
+            if self._pm:
+                self._pm.set_bs_config("generic", "source_dir",
+                                       self._pm.to_relative(d))
+        else:
+            hint = BUILD_SYSTEMS[self._build_system].dep_manifest_hint
+            f = filedialog.askopenfilename(
+                title=f"选择依赖清单 ({hint})",
+                initialdir=self._plugin_dir,
+                filetypes=[(hint, hint), ("所有文件", "*.*")])
+            if not f:
+                return
+            self._source_dir = str(Path(f).parent)
+            self._source_auto = False
+            if self._pm:
+                self._pm.set_bs_config(self._build_system, "manifest",
+                                       self._pm.to_relative(f))
+            self._dist_view.set_manifest(_norm(f))
+            # 可选约定：pyproject.toml 的 [tool.dghub].entry 自动填充入口
+            auto_entry = read_tool_dghub_entry(Path(f))
+            if auto_entry:
+                self._dist_view.set_entry(auto_entry)
+                self._log_view.write(
+                    f"已从 [tool.dghub] 自动填充入口: {auto_entry}")
+        self._dist_view.set_source_dir(self._source_dir)
+        self._push_source_display()
         self._dist_view.clear_entry_error()
         self._clear_tab_highlight("发布")
-        self._save_source_dir(d)
-        # Ensure output dir auto-color is preserved
-        if self._output_auto:
-            self._out_label.configure(text_color=("gray60", "gray60"))
 
     def _reset_source_dir(self) -> None:
-        """Reset source dir back to plugin dir (auto mode)."""
-        if self._plugin_dir:
-            self._source_dir = self._plugin_dir
-            self._source_auto = True
-            self._src_label.configure(text=_norm(self._plugin_dir),
-                                      text_color=("gray60", "gray60"))
-            self._src_path_frame.configure(border_width=0)
-            self._set_reset_visible(self._src_reset_btn, False)
-            self._dist_view.clear_entry_error()
-            self._clear_tab_highlight("发布")
-            self._save_source_dir("")
-            # Ensure output dir auto-color is preserved
-            if self._output_auto:
-                self._out_label.configure(text_color=("gray60", "gray60"))
+        """重置当前系统的锚点（generic 回插件目录；uv/pip 清除清单）。"""
+        if not self._plugin_dir:
+            return
+        self._source_dir = self._plugin_dir
+        self._source_auto = True
+        if self._pm:
+            if self._build_system == "generic":
+                self._pm.set_bs_config("generic", "source_dir", "")
+            else:
+                self._pm.set_bs_config(self._build_system, "manifest", "")
+                self._dist_view.set_manifest("")
+        self._dist_view.set_source_dir(self._plugin_dir)
+        self._push_source_display()
+        self._dist_view.clear_entry_error()
+        self._clear_tab_highlight("发布")
 
     def _select_output_dir(self) -> None:
         d = filedialog.askdirectory(title="选择输出目录")
@@ -264,12 +367,9 @@ class App(ctk.CTk):
         self._set_reset_visible(self._out_reset_btn, True)
         self._dist_view.refresh_preview(_norm(d))
         self._save_output_dir(_norm(d))
-        # Ensure source dir auto-color is preserved
-        if self._source_auto:
-            self._src_label.configure(text_color=("gray60", "gray60"))
 
     def _reset_output_dir(self) -> None:
-        """Reset output dir to default (source_dir/output)."""
+        """Reset output dir to default (plugin_dir/output)."""
         if self._plugin_dir:
             default_out = _norm(Path(self._plugin_dir) / "output")
             self._output_dir = default_out
@@ -279,15 +379,12 @@ class App(ctk.CTk):
             self._set_reset_visible(self._out_reset_btn, False)
             self._dist_view.refresh_preview(default_out)
             self._save_output_dir("")
-            # Ensure source dir auto-color is preserved
-            if self._source_auto:
-                self._src_label.configure(text_color=("gray60", "gray60"))
 
     def _save_output_dir(self, out_dir: str) -> None:
-        """Persist output dir setting to project config."""
+        """Persist output dir setting to project config (存相对插件目录)。"""
         if self._pm:
             project = self._pm.read_project()
-            project["output_dir"] = out_dir
+            project["output_dir"] = self._pm.to_relative(out_dir)
             self._pm.write_project(project)
 
     # ------------------------------------------------------------------
@@ -298,14 +395,13 @@ class App(ctk.CTk):
         """Reset all error states."""
         self._dir_path_frame.configure(border_width=0, border_color="")
         self._dir_label.configure(text_color=("gray10", "gray90"))
-        self._src_path_frame.configure(border_width=0, border_color="")
-        self._src_label.configure(text_color=("gray10", "gray90"))
         self._out_path_frame.configure(border_width=0, border_color="")
         self._out_label.configure(text_color=("gray10", "gray90"))
+        # 视图内目录行/entry 红框复位
+        self._dist_view.clear_entry_error()
+        self._push_source_display()
         # Reset tab colors
         self._tab_view._segmented_button._buttons_dict["信息"].configure(
-            text_color=("gray10", "gray90"))
-        self._tab_view._segmented_button._buttons_dict["依赖"].configure(
             text_color=("gray10", "gray90"))
         self._tab_view._segmented_button._buttons_dict["发布"].configure(
             text_color=("gray10", "gray90"))
@@ -368,25 +464,21 @@ class App(ctk.CTk):
 
         return True
 
-    def _validate_dep_tab(self) -> bool:
-        """Validate 依赖 tab. Returns True if valid."""
-        # At least dghub-sdk is always included
-        return True
-
     def _validate_dist_tab(self) -> bool:
-        """Validate 发布 tab. Returns True if valid."""
-        entry = self._dist_view.get_entry()
-        if not entry:
-            self._log_view.write("[校验失败] 发布 → 入口文件不能为空")
+        """Validate 发布 tab：系统相关静态校验委派给当前系统对象。"""
+        bs = BUILD_SYSTEMS[self._build_system]
+        ctx = self._make_build_context()
+        errors = bs.validate(ctx)
+        if errors:
+            for msg in errors:
+                self._log_view.write(f"[校验失败] 发布 → {msg}")
             self._highlight_tab("发布")
-            self._highlight_field(self._dist_view._entry_entry)
-            self._tab_view.set("发布")
-            return False
-        src_dir = self._source_dir or self._plugin_dir
-        if src_dir and not (Path(src_dir) / entry).is_file():
-            self._log_view.write(f"[校验失败] 发布 → 入口文件不存在: {entry}")
-            self._highlight_tab("发布")
-            self._highlight_field(self._dist_view._entry_entry)
+            # 入口类错误同时红框对应 entry 控件
+            if any("入口" in msg for msg in errors):
+                entry_widget = (self._dist_view._entry_generic_entry
+                                if self._build_system == "generic"
+                                else self._dist_view._entry_entry)
+                self._highlight_field(entry_widget)
             self._tab_view.set("发布")
             return False
         if not self._output_dir:
@@ -395,6 +487,19 @@ class App(ctk.CTk):
             self._out_label.configure(text_color="red")
             return False
         return True
+
+    def _make_build_context(self) -> BuildContext:
+        """组装校验/构建共用的上下文。"""
+        plugin_dir = Path(self._plugin_dir or ".")
+        return BuildContext(
+            plugin_dir=plugin_dir,
+            source_dir=Path(self._source_dir or self._plugin_dir or "."),
+            output_dir=Path(self._output_dir) if self._output_dir else plugin_dir / "output",
+            plugin_name=plugin_dir.name,
+            dist_view=self._dist_view,
+            log=self._log_view.write,
+            pypi_index=self._settings_view.get_pypi_index(),
+        )
 
     # ------------------------------------------------------------------
     # build pipeline
@@ -427,8 +532,6 @@ class App(ctk.CTk):
             self._log_view.write("=== 开始校验 ===")
             if not self._validate_info_tab():
                 return
-            if not self._validate_dep_tab():
-                return
             if not self._validate_dist_tab():
                 return
             self._log_view.write("校验通过 ✓")
@@ -438,138 +541,69 @@ class App(ctk.CTk):
             self._dist_view.save_settings()
             self._log_view.write("配置已保存")
 
-            # Step 3: prepare paths
-            plugin_dir = Path(self._plugin_dir)
-            source_dir = Path(self._source_dir or self._plugin_dir)
-            output_dir = Path(self._output_dir)
-            output_dir.mkdir(parents=True, exist_ok=True)
-            plugin_name = plugin_dir.name
-            build_exe = self._dist_view.get_build_exe()
+            # Step 3: prepare context
+            bs = BUILD_SYSTEMS[self._build_system]
+            ctx = self._make_build_context()
+            ctx.output_dir.mkdir(parents=True, exist_ok=True)
             target = self._dist_view.get_target()
 
-            # Step 4: pack vendor dependencies
-            pkgs = self._dep_view.get_packages()
-            if pkgs:
-                # Filter out base deps and stdlib for the log
-                valid_pkgs = [p for p in pkgs
-                              if not is_dghub_base_dep(p) and not _is_stdlib(p)]
-                if valid_pkgs:
-                    self._log_view.write(f"打包 {len(valid_pkgs)} 个依赖...")
-                    # Pack to a temp vendor dir in output
-                    vendor_dir = output_dir / "vendor"
-                    results = pack_dependencies(
-                        valid_pkgs, vendor_dir,
-                        method="auto",
-                        progress_callback=self._log_view.write,
-                    )
-                    success = sum(1 for v in results.values() if v)
-                    total = len(results)
-                    self._log_view.write(f"依赖打包: {success}/{total} 成功")
+            # Step 4: 系统特有构建步骤（uv/pip: 依赖 vendor + 可选 exe；
+            # generic: 可选 pre-build）
+            if not bs.build_steps(ctx):
+                self._build_success = False
+                return
 
-            # Step 5: build exe if requested
-            if build_exe:
-                self._log_view.write("构建 exe...")
-                include_sdk = self._dist_view.get_include_sdk()
-                ok = build_plugin_exe(
-                    plugin_dir=str(plugin_dir),
-                    source_dir=str(source_dir),
-                    include_dghub_sdk=include_sdk,
-                    log_callback=self._log_view.write,
-                    output_dir=str(output_dir),
-                )
-                if not ok:
-                    self._log_view.write("[错误] exe 构建失败")
-                    return
-                # Cleanup PyInstaller artifacts from plugin dir
-                for leftover in plugin_dir.glob("*.spec"):
-                    leftover.unlink()
-                build_dir = plugin_dir / "build"
-                if build_dir.is_dir():
-                    import shutil
-                    shutil.rmtree(build_dir)
-                self._log_view.write("exe 构建完成")
-
-            # Step 6: generate manifest for output
+            # Step 5: generate manifest for output
             manifest_data = self._info_view._build_manifest()
-            entry = self._dist_view.get_entry()
-            if build_exe:
-                entry = f"{plugin_name}.exe"
-            manifest_data["entry"] = entry
+            manifest_data["entry"] = bs.manifest_entry(ctx)
             manifest_data.pop("homepage", None)
+            manifest_json = json.dumps(manifest_data, ensure_ascii=False,
+                                       indent=2)
 
-            # Step 7: create output
+            # Step 6: 收集产物清单（含存在性校验与 glob 求值，在
+            # pre-build 之后执行）并统一打包（zip 与 folder 结构一致）
+            try:
+                out_files = bs.collect_output(ctx)
+            except BuildError as be:
+                for msg in be.errors:
+                    self._log_view.write(f"[构建失败] {msg}")
+                self._highlight_tab("发布")
+                self._build_success = False
+                return
             if target == "zip":
-                zip_path = output_dir / f"{plugin_name}.zip"
-                with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                    # Write manifest
-                    zf.writestr("manifest.json",
-                                json.dumps(manifest_data, ensure_ascii=False,
-                                           indent=2))
-                    # Write entry source (non-exe mode only)
-                    if not build_exe:
-                        entry_src = source_dir / entry
-                        if entry_src.is_file():
-                            zf.write(entry_src, entry_src.name)
-                    # Write exe (exe mode)
-                    if build_exe:
-                        exe_path = output_dir / f"{plugin_name}.exe"
-                        if exe_path.is_file():
-                            zf.write(exe_path, exe_path.name)
-                    # Write vendor/ (non-exe mode only)
-                    vendor_src = output_dir / "vendor"
-                    if vendor_src.is_dir():
-                        for f in vendor_src.rglob("*"):
-                            if f.is_file():
-                                arc = f.relative_to(output_dir).as_posix()
-                                zf.write(f, arc)
+                zip_path = ctx.output_dir / f"{ctx.plugin_name}.zip"
+                with zipfile.ZipFile(zip_path, "w",
+                                     zipfile.ZIP_DEFLATED) as zf:
+                    zf.writestr("manifest.json", manifest_json)
+                    for src, arc in out_files:
+                        zf.write(src, arc)
                     self._log_view.write(f"打包 zip: {zip_path}")
                 size_kb = zip_path.stat().st_size / 1024
                 self._log_view.write(f"[完成] {zip_path} ({size_kb:.1f} KB)")
-
             elif target == "folder":
-                folder_dir = output_dir / plugin_name
+                import shutil
+                folder_dir = ctx.output_dir / ctx.plugin_name
                 folder_dir.mkdir(parents=True, exist_ok=True)
-                # Write manifest
                 (folder_dir / "manifest.json").write_text(
-                    json.dumps(manifest_data, ensure_ascii=False, indent=2),
-                    encoding="utf-8")
-                # Write entry/exe (same logic as zip)
-                if not build_exe:
-                    entry_src = source_dir / entry
-                    if entry_src.is_file():
-                        try:
-                            (folder_dir / entry_src.name).write_bytes(
-                                entry_src.read_bytes())
-                        except Exception as exc:
-                            self._log_view.write(
-                                f"[警告] 复制入口文件失败: {exc}")
-                    # Write vendor/
-                    vendor_src = output_dir / "vendor"
-                    if vendor_src.is_dir():
-                        vendor_dst = folder_dir / "vendor"
-                        import shutil
-                        if vendor_dst.exists():
-                            shutil.rmtree(vendor_dst)
-                        vendor_src.rename(vendor_dst)
-                if build_exe:
-                    exe_path = output_dir / f"{plugin_name}.exe"
-                    if exe_path.is_file():
-                        try:
-                            import shutil
-                            shutil.copy2(exe_path, folder_dir / exe_path.name)
-                        except Exception as exc:
-                            self._log_view.write(f"[警告] 复制 exe 失败: {exc}")
+                    manifest_json, encoding="utf-8")
+                for src, arc in out_files:
+                    dst = folder_dir / arc
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        shutil.copy2(src, dst)
+                    except Exception as exc:
+                        self._log_view.write(f"[警告] 复制文件失败: {exc}")
                 self._log_view.write(f"[完成] 文件夹已发布: {folder_dir}")
 
             # Cleanup temp vendor, cache, and exe (intermediate artifact)
             import shutil
-            temp_vendor = output_dir / "vendor"
+            temp_vendor = ctx.output_dir / "vendor"
             if temp_vendor.is_dir():
                 shutil.rmtree(temp_vendor)
-            cache_dir = output_dir / "cache"
+            cache_dir = ctx.output_dir / "cache"
             if cache_dir.is_dir():
                 shutil.rmtree(cache_dir)
-            exe_file = output_dir / f"{plugin_name}.exe"
+            exe_file = ctx.output_dir / f"{ctx.plugin_name}.exe"
             if exe_file.is_file():
                 exe_file.unlink()
 
@@ -583,20 +617,32 @@ class App(ctk.CTk):
             else:
                 self._build_status.configure(text="❌ 构建失败", text_color="red")
 
-    def _save_last_plugin_dir(self, d: str) -> None:
+    def _read_state(self) -> dict:
+        """读取全局状态文件（不存在或损坏返回空 dict）。"""
         try:
-            _STATE_FILE.write_text(
-                json.dumps({"last_plugin_dir": d}), encoding="utf-8")
+            if _STATE_FILE.is_file():
+                return json.loads(_STATE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        return {}
+
+    def _save_state_key(self, key: str, value: Any) -> None:
+        """读-改-写更新全局状态文件的单个键（不覆盖其他键）。"""
+        try:
+            state = self._read_state()
+            state[key] = value
+            _STATE_FILE.write_text(json.dumps(state), encoding="utf-8")
         except Exception:
             pass
 
+    def _save_last_plugin_dir(self, d: str) -> None:
+        self._save_state_key("last_plugin_dir", d)
+
     def _auto_open_last_plugin_dir(self) -> None:
         try:
-            if _STATE_FILE.is_file():
-                data = json.loads(_STATE_FILE.read_text(encoding="utf-8"))
-                last = data.get("last_plugin_dir", "")
-                if last and Path(last).is_dir():
-                    self._select_shared_dir(last)
+            last = self._read_state().get("last_plugin_dir", "")
+            if last and Path(last).is_dir():
+                self._select_shared_dir(last)
         except Exception:
             pass
 
@@ -609,39 +655,41 @@ class App(ctk.CTk):
         self._dir_label.configure(text=_norm(d), text_color=("gray10", "gray90"))
         self._dir_path_frame.configure(border_width=0)
 
-        # Initialize project manager
-        self._pm = ProjectManager(d)
+        # Initialize project manager（旧格式破坏性升级：重置为默认值并日志提示）
+        self._pm = ProjectManager(d, log=self._log_view.write)
+        try:
+            project = self._pm.read_project()
+        except UnsupportedFormatError as exc:
+            self._log_view.write(f"[错误] {exc}")
+            self._pm = None
+            return
 
         # Push to all tabs
         self._info_view.set_plugin_dir(d, self._pm)
-        self._dep_view.set_plugin_dir(d, self._pm)
         self._dist_view.set_plugin_dir(d, self._pm)
 
-        # Restore saved settings, or use auto defaults
-        project = self._pm.read_project()
+        # Build system
+        self._build_system = project.get("build_system", "uv")
+        if self._build_system not in BUILD_SYSTEMS:
+            self._build_system = "uv"
+        self._type_menu.configure(state="normal")
+        self._type_menu.set(_TYPE_LABELS.get(self._build_system,
+                                             _TYPE_LABELS["uv"]))
+        self._dist_view.set_build_system(self._build_system)
 
-        # Source dir
-        saved_src = project.get("source_dir", "")
-        if saved_src:
-            self._source_dir = saved_src
-            self._source_auto = False
-            self._src_label.configure(text=_norm(saved_src), text_color=("gray10", "gray90"))
-        else:
-            self._source_dir = d
-            self._source_auto = True
-            self._src_label.configure(text=_norm(d), text_color=("gray60", "gray60"))
-        self._src_path_frame.configure(border_width=0)
-        self._set_reset_visible(self._src_reset_btn, not self._source_auto)
+        # Source dir（按系统独立：加载当前系统并刷新两个视图的显示）
+        self._load_source_dir_state()
 
-        # Enable source and output dir rows
-        for b in self._src_btns + self._out_btns:
+        # Enable output dir row
+        for b in self._out_btns:
             b.configure(state="normal")
 
-        # Output dir
+        # Output dir（存储为相对插件目录，解析为绝对后使用）
         saved_out = project.get("output_dir", "")
         if saved_out:
-            self._output_dir = saved_out
-            self._out_label.configure(text=_norm(saved_out), text_color=("gray10", "gray90"))
+            self._output_dir = self._pm.to_absolute(saved_out)
+            self._out_label.configure(text=_norm(self._output_dir),
+                                      text_color=("gray10", "gray90"))
             self._output_auto = False
         else:
             default_out = _norm(Path(d) / "output")
@@ -653,10 +701,3 @@ class App(ctk.CTk):
 
         self._log_view.write(f"已加载项目: {d}")
         self._save_last_plugin_dir(d)
-
-    def _save_source_dir(self, src_dir: str) -> None:
-        """Persist source dir setting to project config."""
-        if self._pm:
-            project = self._pm.read_project()
-            project["source_dir"] = src_dir
-            self._pm.write_project(project)

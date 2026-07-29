@@ -88,4 +88,5 @@ class DeviceType(StrEnum):
 
     V2 = "v2"
     V3 = "v3"
+    V4 = "v4"
     UNKNOWN = ""

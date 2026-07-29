@@ -7,13 +7,24 @@
 
 ## 安装
 
-从 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases) 下载 `.whl` 文件，然后：
+从 PyPI 安装（SDK 的唯一官方分发渠道）：
 
 ```bash
-pip install dghub_sdk-x.x.x-py3-none-any.whl
+pip install dghub-sdk
 ```
 
-> 依赖：Python 3.11+、`websockets`（会随 whl 自动安装）
+> 依赖：Python 3.11+、`websockets`（会自动安装）
+
+> **版本说明**：toolkit 的 Release 版本号是「发布批次号」，并非每次发布都包含
+> SDK 变更；SDK 无变更的批次不会向 PyPI 发布新版本，因此 PyPI 上的版本号可能
+> 小于最新 Release 号——这是正常现象，PyPI 上的最新版即 SDK 的最新状态。
+> GitHub Release 附件不包含 SDK wheel；如确需离线安装包，可从源码自行构建：
+>
+> ```bash
+> cd sdk/python
+> pip install -r requirements.txt
+> python build_sdk.py          # 产物输出到 dist/
+> ```
 
 ---
 
@@ -29,13 +40,34 @@ def on_stop(reason: str) -> None:
     running = False
 
 with dghub_sdk.Agent(on_stop=on_stop) as agent:
+    agent.wait_ready(timeout=10)   # 等待握手完成
     while running:
         agent.poll()
         # 你的游戏 / 业务逻辑
 ```
 
-`Agent` 作为上下文管理器使用时，`__enter__` 自动在后台线程建立 WebSocket
-连接并完成握手；`__exit__` 断开连接并等待线程退出。
+`Agent` 作为上下文管理器使用时，`__enter__` 在后台线程启动 WebSocket
+连接（不阻塞）；`__exit__` 断开连接并等待线程退出。
+
+`start()` / `__enter__` 均不等待握手完成。在首次调用 `poll()` 或发送
+消息前，应显式调用 `wait_ready()` 确认握手完成：
+
+```python
+agent = dghub_sdk.Agent()
+agent.start()
+agent.wait_ready(timeout=10)
+```
+
+需要非阻塞的单次检查时，可用 `is_ready()`：
+
+```python
+if agent.is_ready():
+    agent.send_status_field("score", score)
+```
+
+连接或握手失败会由 `wait_ready()` 直接抛出，
+运行期间的后台异常仍可通过 `get_exception()` 读取。
+等待后台线程退出使用 `wait_threading_exit()`（`__exit__` 会自动调用）。
 
 `poll()` 从内部消息队列取出已收到的服务端消息，在调用线程上依次触发回调。
 默认非阻塞（立即清空队列），传入 `timeout` 参数可阻塞等待。
@@ -106,6 +138,10 @@ def send_trigger(
     channel: Channel = Channel.BOTH,
     label: str | None = None,
     username: str | None = None,
+    name: str | None = None,
+    cause: str | None = None,
+    pulse_name: str | None = None,
+    target_id: str | None = None,
 ) -> None: ...
 ```
 
@@ -147,6 +183,31 @@ agent.send_trigger(
     duration_s=0.5,
 )
 ```
+
+### SDK 1.1 事件信息
+
+`send_trigger()` 可通过 `name`、`cause`、`pulse_name` 补充事件的具体内容、
+触发原因和实际波形名。`send_event()` 还支持 `from_pct`、`to_pct`、
+`delta_pct`，用于让 DGHub 界面完整展示事件前后的强度变化。
+
+### V4 多设备目标
+
+V4 设备信息会以 `DeviceType.V4` 传给 `on_device_info`。通常插件不需要自己
+选设备，省略 `target_id` 时 DGHub 会使用插件默认目标；只有一次行为需要明确
+发给另一台 V4 设备时，才传消息级目标：
+
+```python
+agent.send_pulse(
+    "振动-短",
+    channel=dghub_sdk.Channel.A,
+    target_id="target-1",
+)
+```
+
+`send_trigger()`、`send_event()`、`send_pulse()`、`send_set_strength()` 和
+`send_adjust_strength()` 都支持可选的 `target_id`。省略时不会在 JSON 中发送
+该字段，因此 V2/V3 和旧调用方式保持不变。`target_id` 仍由 DGHub 管理，
+不要用 `send_set_config()` 修改它。
 
 ---
 

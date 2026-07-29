@@ -9,6 +9,33 @@ permissions:
   contents: write
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      sdk: ${{ steps.filter.outputs.sdk }}
+    steps:
+      - name: Checkout (full history for tag diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect whether sdk/python changed since previous tag
+        id: filter
+        shell: bash
+        run: |
+          current="${{ github.ref_name }}"
+          prev=$(git describe --tags --abbrev=0 --match 'v*' "${current}^" 2>/dev/null || echo "")
+          if [ -z "$prev" ]; then
+            echo "No previous v* tag; treating SDK as changed (first release)."
+            echo "sdk=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$prev" "$current" -- sdk/python; then
+            echo "sdk/python unchanged between $prev and $current; skipping SDK build/publish."
+            echo "sdk=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "sdk/python changed between $prev and $current; building SDK."
+            echo "sdk=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build-packer:
     runs-on: windows-latest
 
@@ -21,14 +48,17 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          uv sync
         working-directory: packer
 
       - name: Build with PyInstaller
         run: |
-          python build_exe.py
+          uv run build_exe.py
         env:
           CI_VERSION_TAG: ${{ github.ref_name }}
         working-directory: packer
@@ -40,6 +70,8 @@ jobs:
           path: packer/bin/DGHubPluginPacker.exe
 
   build-sdk:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.sdk == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -70,15 +102,42 @@ jobs:
           path: sdk/python/dist/*
 
   release:
-    needs: [build-packer, build-sdk]
+    needs: [detect-changes, build-packer, build-sdk]
+    # build-sdk 可能被合法跳过（SDK 无变更），仅要求其不失败
+    if: always() && needs.build-packer.result == 'success' && needs.build-sdk.result != 'failure' && needs.detect-changes.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download all build artifacts
+      - name: Checkout (for CHANGELOG.md)
+        uses: actions/checkout@v4
+
+      - name: Download Packer artifact
         uses: actions/download-artifact@v4
         with:
+          name: DGHubPluginPacker-${{ github.ref_name }}
           path: release-files
-          merge-multiple: true
+
+      - name: Strip tag prefix
+        id: ver
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Read changelog entry
+        id: changelog
+        uses: mindsers/changelog-reader-action@v2
+        with:
+          version: ${{ steps.ver.outputs.version }}
+          path: ./CHANGELOG.md
+
+      - name: Compose SDK note
+        id: sdknote
+        shell: bash
+        run: |
+          if [ "${{ needs.detect-changes.outputs.sdk }}" = "true" ]; then
+            echo "note=本次发布包含 dghub-sdk 更新，请从 PyPI 安装：\`pip install -U dghub-sdk\`。" >> "$GITHUB_OUTPUT"
+          else
+            echo "note=本次发布不含 dghub-sdk 更新（自上一版本无变更）。SDK 一律通过 PyPI 分发：\`pip install dghub-sdk\`。" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -86,11 +145,17 @@ jobs:
           name: DGHub SDK Toolkit ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-') }}
+          body: |
+            ${{ steps.changelog.outputs.changes }}
+
+            ---
+            ${{ steps.sdknote.outputs.note }}
           generate_release_notes: true
           files: release-files/*
 
   publish-pypi:
-    needs: [build-sdk]
+    needs: [detect-changes, build-sdk]
+    if: needs.detect-changes.outputs.sdk == 'true' && needs.build-sdk.result == 'success'
     runs-on: ubuntu-latest
 
     steps:

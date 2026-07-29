@@ -88,6 +88,7 @@ def build_plugin_exe(
     log_callback: Optional[Callable[[str], None]] = None,
     output_dir: str = "",
     source_dir: str = "",
+    entry: str = "",
 ) -> bool:
     """Build a self-contained .exe from a DGHub plugin directory.
 
@@ -97,6 +98,7 @@ def build_plugin_exe(
         include_dghub_sdk: Whether to bundle dghub_sdk.
         log_callback: Optional progress callback.
         output_dir: Output directory for the exe.
+        entry: 入口文件（相对 source_dir）；缺省时回退读插件根 manifest.json。
 
     Returns:
         True on success.
@@ -107,7 +109,8 @@ def build_plugin_exe(
         _log(f"[错误] 插件目录不存在: {pdir}", log_callback)
         return False
 
-    entry = _read_entry(pdir)
+    if not entry:
+        entry = _read_entry(pdir)
     entry_path = sdir / entry
     if not entry_path.is_file():
         _log(f"[错误] 入口文件不存在: {entry_path}", log_callback)

@@ -189,7 +189,7 @@ class ManifestTab(ctk.CTkFrame):
         frame.pack(fill="x", pady=(0, 10))
         ctk.CTkLabel(frame, text="能力声明",
                      font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=10, pady=(10, 5))
-        self._cb_startup_check = ctk.CTkCheckBox(frame, text="startup_check (启动检查)",
+        self._cb_startup_check = ctk.CTkCheckBox(frame, text="启动检查 (startup_check)",
                                                   command=self._refresh_preview)
         self._cb_startup_check.pack(anchor="w", padx=10, pady=(0, 10))
         self._controls.append(self._cb_startup_check)
