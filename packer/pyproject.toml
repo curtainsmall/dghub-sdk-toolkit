@@ -1,0 +1,13 @@
+[project]
+name = "dghub-plugin-packer"
+version = "0.0.0"
+description = "DGHub Plugin Packer — visual build tool for DGHub plugins"
+requires-python = ">=3.11"
+dependencies = [
+    "customtkinter>=5.2.0",
+    "pyinstaller>=6.0.0",
+]
+
+[tool.uv]
+# Packer 是应用而非库，uv sync 仅安装依赖，不构建自身
+package = false

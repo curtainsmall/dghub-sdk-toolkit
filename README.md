@@ -40,13 +40,14 @@ with dghub_sdk.Agent() as agent:
 ### 从源码运行
 
 ```bash
-pip install -r packer/requirements.txt
+# 安装依赖（需要 uv）
+uv sync --project packer
 
 # 运行
-python -m packer.src.main
+uv run --project packer python -m packer.src.main
 
 # 打包为单文件 exe
-python packer/build_exe.py
+uv run --project packer python packer/build_exe.py
 ```
 
 详细用法参见 [Plugin Packer 使用指南](docs/packer.md)。
