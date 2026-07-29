@@ -108,11 +108,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout (for CHANGELOG.md)
+        uses: actions/checkout@v4
+
       - name: Download Packer artifact
         uses: actions/download-artifact@v4
         with:
           name: DGHubPluginPacker-${{ github.ref_name }}
           path: release-files
+
+      - name: Strip tag prefix
+        id: ver
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Read changelog entry
+        id: changelog
+        uses: mindsers/changelog-reader-action@v2
+        with:
+          version: ${{ steps.ver.outputs.version }}
+          path: ./CHANGELOG.md
 
       - name: Compose SDK note
         id: sdknote
@@ -130,7 +145,11 @@ jobs:
           name: DGHub SDK Toolkit ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-') }}
-          body: ${{ steps.sdknote.outputs.note }}
+          body: |
+            ${{ steps.changelog.outputs.changes }}
+
+            ---
+            ${{ steps.sdknote.outputs.note }}
           generate_release_notes: true
           files: release-files/*
 
