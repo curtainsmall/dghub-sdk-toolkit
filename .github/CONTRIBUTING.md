@@ -25,6 +25,17 @@
 - `v*` tag 会自动触发 GitHub Actions 构建与发布（GitHub Release + PyPI）
 - 贡献者请勿创建或推送 `v*` tag
 
+### 版本模型与 SDK 条件发布
+
+- toolkit 版本号（`v*` tag）是**发布批次号**，Packer 与 SDK 统一使用
+- **GitHub Release 附件只包含 Packer exe**；SDK wheel 一律不附，
+  PyPI 是 dghub-sdk 的唯一官方分发渠道（离线场景可从源码构建）
+- CI 会比较当前 tag 与上一个 `v*` tag 之间 `sdk/python/` 是否有变更：
+  - **有变更** — 构建 SDK wheel 并发布至 PyPI
+  - **无变更** — 跳过 SDK 构建与 PyPI 发布（PyPI 版本号「跳号」是预期行为）
+  - Release 说明会自动标注本次是否包含 SDK 更新
+- SDK 构建失败会阻断整个发布（不会产生缺 SDK 的"半个批次"）
+
 ## 开发环境
 
 - Python 3.11+

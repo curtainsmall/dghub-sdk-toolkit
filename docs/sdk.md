@@ -7,13 +7,24 @@
 
 ## 安装
 
-从 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases) 下载 `.whl` 文件，然后：
+从 PyPI 安装（SDK 的唯一官方分发渠道）：
 
 ```bash
-pip install dghub_sdk-x.x.x-py3-none-any.whl
+pip install dghub-sdk
 ```
 
-> 依赖：Python 3.11+、`websockets`（会随 whl 自动安装）
+> 依赖：Python 3.11+、`websockets`（会自动安装）
+
+> **版本说明**：toolkit 的 Release 版本号是「发布批次号」，并非每次发布都包含
+> SDK 变更；SDK 无变更的批次不会向 PyPI 发布新版本，因此 PyPI 上的版本号可能
+> 小于最新 Release 号——这是正常现象，PyPI 上的最新版即 SDK 的最新状态。
+> GitHub Release 附件不包含 SDK wheel；如确需离线安装包，可从源码自行构建：
+>
+> ```bash
+> cd sdk/python
+> pip install -r requirements.txt
+> python build_sdk.py          # 产物输出到 dist/
+> ```
 
 ---
 
