@@ -4,7 +4,7 @@ import json
 import time
 from pathlib import Path
 from tkinter import messagebox
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import customtkinter as ctk
 
@@ -24,10 +24,19 @@ FIELD_TYPE_LABELS: dict[str, str] = {
 }
 
 
+def _reset_entry_border(entry: ctk.CTkEntry) -> None:
+    """将输入框恢复为主题默认边框（清除错误红框，而非抹成无边框）。"""
+    entry.configure(
+        border_width=ctk.ThemeManager.theme["CTkEntry"]["border_width"],
+        border_color=ctk.ThemeManager.theme["CTkEntry"]["border_color"])
+
+
 class ManifestTab(ctk.CTkFrame):
     """Tab for creating / editing manifest.json."""
 
-    def __init__(self, master: Any, **kwargs: Any) -> None:
+    def __init__(self, master: Any,
+                 on_field_edit: Optional[Callable[[str], None]] = None,
+                 **kwargs: Any) -> None:
         super().__init__(master, **kwargs)
         # internal data
         self._sections: list[dict[str, Any]] = []
@@ -40,6 +49,8 @@ class ManifestTab(ctk.CTkFrame):
         self._field_errors: dict[str, str] = {}
         self._pm: Optional[ProjectManager] = None
         self._auto_save_enabled = False
+        # 字段被编辑时回调（key）→ 供 app 级联清除错误高亮
+        self._on_field_edit = on_field_edit
 
         self._build_ui()
         self._set_enabled(False)
@@ -166,9 +177,18 @@ class ManifestTab(ctk.CTkFrame):
     def _on_field_keyrelease(self, key: str) -> None:
         widget = self._fields.get(key)
         if isinstance(widget, ctk.CTkEntry):
-            widget.configure(border_width=0)
+            _reset_entry_border(widget)
+        if self._on_field_edit:
+            self._on_field_edit(key)
         self._refresh_preview()
         self._auto_save()
+
+    def reset_field_borders(self) -> None:
+        """将必填字段输入框恢复默认边框（供 app 在构建开始时统一复位）。"""
+        for key in ("id", "name", "version"):
+            w = self._fields.get(key)
+            if isinstance(w, ctk.CTkEntry):
+                _reset_entry_border(w)
 
     def _on_field_focusin(self, key: str) -> None:
         """Clear error text when the user focuses on a field."""

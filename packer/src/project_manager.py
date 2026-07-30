@@ -26,7 +26,9 @@ project.json 为唯一配置文件（format_version 1，按构建系统命名空
 import json
 import os
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Optional
+
+from logbus import Logger
 
 # 当前支持的配置格式代数（仅破坏性变更时递增）
 _SUPPORTED_FORMAT = 1
@@ -72,14 +74,14 @@ class ProjectManager:
     """
 
     def __init__(self, plugin_dir: str,
-                 log: Optional[Callable[[str], None]] = None) -> None:
+                 log: Optional[Logger] = None) -> None:
         self._plugin_dir = Path(plugin_dir)
         self._root = self._plugin_dir / ".dghub-sdk"
         self._log = log
 
-    def _note(self, msg: str) -> None:
+    def _note(self, msg: str, level: str = "info") -> None:
         if self._log:
-            self._log(msg)
+            getattr(self._log, level)(msg)
 
     # ------------------------------------------------------------------
     # 路径存取（存相对插件目录，跨盘符回退绝对）
@@ -92,7 +94,7 @@ class ProjectManager:
         try:
             rel = os.path.relpath(path, self._plugin_dir)
         except ValueError:
-            self._note(f"[提示] 路径与插件目录不同盘符，将存为绝对路径"
+            self._note(f"路径与插件目录不同盘符，将存为绝对路径"
                        f"（不可移植）: {path}")
             return Path(path).as_posix()
         return Path(rel).as_posix()
@@ -198,10 +200,11 @@ class ProjectManager:
             self.write_project(data)
             if deps_path.is_file():
                 deps_path.unlink()
-            self._note("[提示] 检测到旧版配置，发布设置已重置"
-                       "（manifest 不受影响），请重新配置")
+            self._note("检测到旧版配置，构建设置已重置"
+                       "（manifest 不受影响），请重新配置", "warning")
         except OSError as exc:
-            self._note(f"[警告] 配置重置落盘失败（{exc}），将在下次写入时重试")
+            self._note(f"配置重置落盘失败（{exc}），将在下次写入时重试",
+                       "warning")
 
     # ------------------------------------------------------------------
     # 构建系统命名空间访问接口
