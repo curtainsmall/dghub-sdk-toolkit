@@ -59,7 +59,7 @@ class _ToolTip:
 
 
 class DistributeTab(ctk.CTkFrame):
-    """发布 tab：双视图容器（python_view / generic_view）+ 共享预览。"""
+    """构建 tab：双视图容器（python_view / generic_view）+ 共享预览。"""
 
     def __init__(self, master: Any,
                  on_select_source: Optional[Callable[[], None]] = None,
@@ -151,12 +151,10 @@ class DistributeTab(ctk.CTkFrame):
         path_frame = ctk.CTkFrame(frame, fg_color=("gray85", "gray25"),
                                   border_width=0, corner_radius=6)
         path_frame.grid(row=0, column=1, sticky="ew", padx=5)
-        # width=1：固定请求宽度，长路径不撑宽右栏（显示区仍随列拉伸，
-        # 超长截断，完整路径看悬停 tooltip）
+        # width=1：固定请求宽度，长路径不撑宽右栏（显示区随列拉伸，超长截断）
         path_lbl = ctk.CTkLabel(path_frame, text="", fg_color="transparent",
                                 anchor="w", width=1)
         path_lbl.pack(fill="x", expand=True, padx=8, pady=4)
-        path_tip = _ToolTip(path_lbl, "")
 
         btn = ctk.CTkButton(frame, text=btn_text, width=_SELECT_BTN_W,
                             command=self._request_select_source)
@@ -177,7 +175,7 @@ class DistributeTab(ctk.CTkFrame):
         _ToolTip(reset_btn, "恢复默认")
 
         self._src_rows[key] = {"frame": path_frame, "label": path_lbl,
-                               "reset": reset_btn, "tip": path_tip}
+                               "reset": reset_btn}
 
     def _request_select_source(self) -> None:
         if self._on_select_source:
@@ -194,7 +192,6 @@ class DistributeTab(ctk.CTkFrame):
             return
         color = ("gray60", "gray60") if auto else ("gray10", "gray90")
         row["label"].configure(text=path, text_color=color)
-        row["tip"]._text = path
         row["frame"].configure(border_width=0)
         if auto:
             row["reset"].pack_forget()
@@ -221,7 +218,6 @@ class DistributeTab(ctk.CTkFrame):
             color = ("gray60", "gray60")
             self._exec_reset_btn.pack_forget()
         self._exec_dir_lbl.configure(text=text, text_color=color)
-        self._exec_dir_tip._text = text
 
     def _pick_exec_dir(self) -> None:
         d = filedialog.askdirectory(title="选择预构建命令执行目录")
@@ -294,7 +290,7 @@ class DistributeTab(ctk.CTkFrame):
         entry_frame.grid_columnconfigure(1, weight=1)
         label_frame = ctk.CTkFrame(entry_frame, fg_color="transparent",
                                    width=_LABEL_W, height=28)
-        label_frame.grid(row=0, column=0, sticky="w")
+        label_frame.grid(row=0, column=0, padx=(0, 5), sticky="w")
         label_frame.pack_propagate(False)
         ctk.CTkLabel(label_frame, text="入口文件 ",
                      font=ctk.CTkFont(weight="bold")).pack(side="left")
@@ -342,13 +338,7 @@ class DistributeTab(ctk.CTkFrame):
         view.grid_columnconfigure(1, weight=2, uniform="split")
         view.grid_rowconfigure(1, weight=1)
 
-        # 顶部说明：本系统只打包，不构建
-        ctk.CTkLabel(view,
-                     text="不使用任何构建器：可选执行预构建命令后，"
-                          "直接打包收集目录内的原始文件",
-                     font=ctk.CTkFont(size=11),
-                     text_color=("gray40", "gray60")).grid(
-            row=0, column=0, columnspan=2, sticky="w", padx=15, pady=(8, 0))
+        # 系统说明文案显示在顶部栏构建系统选择器右侧（app.py），此处不再重复
 
         # ---- 左栏：附加文件 / 规则清单 ----
         left = ctk.CTkFrame(view)
@@ -440,7 +430,6 @@ class DistributeTab(ctk.CTkFrame):
                                           fg_color="transparent",
                                           anchor="w", width=1)
         self._exec_dir_lbl.pack(fill="x", expand=True, padx=8, pady=4)
-        self._exec_dir_tip = _ToolTip(self._exec_dir_lbl, "")
         self._exec_pick_btn = ctk.CTkButton(ex_frame, text="选择目录",
                                             width=_SELECT_BTN_W,
                                             command=self._pick_exec_dir)
@@ -466,7 +455,7 @@ class DistributeTab(ctk.CTkFrame):
         entry_frame.grid_columnconfigure(1, weight=1)
         label_frame = ctk.CTkFrame(entry_frame, fg_color="transparent",
                                    width=_LABEL_W, height=28)
-        label_frame.grid(row=0, column=0, sticky="w")
+        label_frame.grid(row=0, column=0, padx=(0, 5), sticky="w")
         label_frame.pack_propagate(False)
         ctk.CTkLabel(label_frame, text="入口文件 ",
                      font=ctk.CTkFont(weight="bold")).pack(side="left")
@@ -586,13 +575,20 @@ class DistributeTab(ctk.CTkFrame):
         if bs is None or not bs.dep_manifest_hint:
             return
         if self._manifest_path:
-            self._dep_manifest_label.configure(
-                text=f"✓ {Path(self._manifest_path).name}",
-                text_color="green")
+            name = Path(self._manifest_path).name
+            if bs.is_known_manifest(name):
+                self._dep_manifest_label.configure(
+                    text=f"✓ {name}", text_color="green")
+            else:
+                # 浅红警示：所选文件不是本系统可识别的清单类型
+                self._dep_manifest_label.configure(
+                    text=f"? {name} 未知构建系统",
+                    text_color=("#C0504D", "#E57373"))
         else:
+            # 黄色提示：未选清单可构建，但会跳过依赖打包
             self._dep_manifest_label.configure(
                 text=f"未选择（{bs.dep_manifest_hint}）— 将跳过依赖打包",
-                text_color="gray")
+                text_color=("#9A6700", "#E0B040"))
         # 工具可用性后台预检
         threading.Thread(target=self._check_tool_bg, args=(self._bs,),
                          daemon=True).start()

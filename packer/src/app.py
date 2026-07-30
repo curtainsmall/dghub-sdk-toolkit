@@ -96,7 +96,7 @@ class App(ctk.CTk):
 
         # -- tabs --
         self._info_tab = self._tab_view.add("信息")
-        self._dist_tab = self._tab_view.add("发布")
+        self._dist_tab = self._tab_view.add("构建")
         self._settings_tab = self._tab_view.add("设置")
         self._log_tab = self._tab_view.add("日志")
 
@@ -184,23 +184,30 @@ class App(ctk.CTk):
         self._dir_path_frame, self._dir_label, _ = _make_dir_row(
             bar, 0, "插件目录:", "未选择", self._select_shared_dir)
         
-        # Row 1: 输出目录（初始禁用；源码/收集目录已移入发布 tab 各系统视图）
+        # Row 1: 输出目录（初始禁用；源码/收集目录已移入构建 tab 各系统视图）
         self._out_path_frame, self._out_label, self._out_btns = _make_dir_row(
             bar, 1, "输出目录:", "", self._select_output_dir,
             reset_cmd=self._reset_output_dir)
         self._out_reset_btn = self._out_btns[1]
         
-        # Row 2: 构建系统（跨 tab 全局选择器，初始禁用）
+        # Row 2: 构建系统（跨 tab 全局选择器，初始禁用；右侧为系统说明文案）
         ctk.CTkLabel(bar, text="构建系统:",
                      font=ctk.CTkFont(weight="bold")).grid(
             row=2, column=0, padx=(0, 5), pady=4, sticky="w")
         self._build_system = "uv"
+        type_frame = ctk.CTkFrame(bar, fg_color="transparent")
+        type_frame.grid(row=2, column=1, sticky="ew", padx=5, pady=4)
         self._type_menu = ctk.CTkOptionMenu(
-            bar, width=200, values=list(_TYPE_LABELS.values()),
+            type_frame, width=200, values=list(_TYPE_LABELS.values()),
             command=self._on_build_system_changed)
         self._type_menu.set(_TYPE_LABELS["uv"])
-        self._type_menu.grid(row=2, column=1, padx=5, pady=4, sticky="w")
+        self._type_menu.pack(side="left")
         self._type_menu.configure(state="disabled")
+        # width=1：固定请求宽度，长文案不撑宽顶部栏
+        self._type_hint = ctk.CTkLabel(
+            type_frame, text="", font=ctk.CTkFont(size=11),
+            text_color=("gray40", "gray60"), anchor="w", width=1)
+        self._type_hint.pack(side="left", fill="x", expand=True, padx=(10, 0))
         
         # Initially disable output row
         for b in self._out_btns:
@@ -214,9 +221,15 @@ class App(ctk.CTk):
         else:
             btn.pack_forget()
 
+    def _update_type_hint(self) -> None:
+        """刷新选择器右侧的构建系统说明文案（空描述则不显示）。"""
+        bs = BUILD_SYSTEMS.get(self._build_system)
+        self._type_hint.configure(text=bs.description if bs else "")
+
     def _on_build_system_changed(self, label: str) -> None:
         """构建系统切换：持久化、加载新系统目录状态并切换视图。"""
         self._build_system = _TYPE_VALUES.get(label, "uv")
+        self._update_type_hint()
         if self._pm:
             project = self._pm.read_project()
             project["build_system"] = self._build_system
@@ -287,7 +300,7 @@ class App(ctk.CTk):
         bar.grid_columnconfigure(0, weight=1)
 
         self._build_btn = ctk.CTkButton(
-            bar, text="构建", command=self._start_build,
+            bar, text="开始构建", command=self._start_build,
             width=120, height=36, font=ctk.CTkFont(size=14, weight="bold"))
         self._build_btn.pack(side="right", padx=5)
 
@@ -301,7 +314,7 @@ class App(ctk.CTk):
     # ------------------------------------------------------------------
 
     def _select_source_dir(self) -> None:
-        """发布 tab 视图内锚点行的选择回调（按当前系统持久化）。
+        """构建 tab 视图内锚点行的选择回调（按当前系统持久化）。
 
         generic 选收集目录；uv/pip 选依赖清单文件（项目根 = 其所在目录）。
         """
@@ -315,11 +328,12 @@ class App(ctk.CTk):
                 self._pm.set_bs_config("generic", "source_dir",
                                        self._pm.to_relative(d))
         else:
-            hint = BUILD_SYSTEMS[self._build_system].dep_manifest_hint
+            bs = BUILD_SYSTEMS[self._build_system]
+            patterns = bs.manifest_patterns or ("*.*",)
             f = filedialog.askopenfilename(
-                title=f"选择依赖清单 ({hint})",
+                title=f"选择依赖清单 ({bs.dep_manifest_hint})",
                 initialdir=self._plugin_dir,
-                filetypes=[(hint, hint), ("所有文件", "*.*")])
+                filetypes=[("依赖清单", patterns), ("所有文件", "*.*")])
             if not f:
                 return
             self._source_dir = str(Path(f).parent)
@@ -337,7 +351,7 @@ class App(ctk.CTk):
         self._dist_view.set_source_dir(self._source_dir)
         self._push_source_display()
         self._dist_view.clear_entry_error()
-        self._clear_tab_highlight("发布")
+        self._clear_tab_highlight("构建")
 
     def _reset_source_dir(self) -> None:
         """重置当前系统的锚点（generic 回插件目录；uv/pip 清除清单）。"""
@@ -354,7 +368,7 @@ class App(ctk.CTk):
         self._dist_view.set_source_dir(self._plugin_dir)
         self._push_source_display()
         self._dist_view.clear_entry_error()
-        self._clear_tab_highlight("发布")
+        self._clear_tab_highlight("构建")
 
     def _select_output_dir(self) -> None:
         d = filedialog.askdirectory(title="选择输出目录")
@@ -403,7 +417,7 @@ class App(ctk.CTk):
         # Reset tab colors
         self._tab_view._segmented_button._buttons_dict["信息"].configure(
             text_color=("gray10", "gray90"))
-        self._tab_view._segmented_button._buttons_dict["发布"].configure(
+        self._tab_view._segmented_button._buttons_dict["构建"].configure(
             text_color=("gray10", "gray90"))
 
     def _tab_color(self, name: str, color: str) -> None:
@@ -465,21 +479,21 @@ class App(ctk.CTk):
         return True
 
     def _validate_dist_tab(self) -> bool:
-        """Validate 发布 tab：系统相关静态校验委派给当前系统对象。"""
+        """Validate 构建 tab：系统相关静态校验委派给当前系统对象。"""
         bs = BUILD_SYSTEMS[self._build_system]
         ctx = self._make_build_context()
         errors = bs.validate(ctx)
         if errors:
             for msg in errors:
-                self._log_view.write(f"[校验失败] 发布 → {msg}")
-            self._highlight_tab("发布")
+                self._log_view.write(f"[校验失败] 构建 → {msg}")
+            self._highlight_tab("构建")
             # 入口类错误同时红框对应 entry 控件
             if any("入口" in msg for msg in errors):
                 entry_widget = (self._dist_view._entry_generic_entry
                                 if self._build_system == "generic"
                                 else self._dist_view._entry_entry)
                 self._highlight_field(entry_widget)
-            self._tab_view.set("发布")
+            self._tab_view.set("构建")
             return False
         if not self._output_dir:
             self._log_view.write("[校验失败] 输出目录未选择")
@@ -520,7 +534,7 @@ class App(ctk.CTk):
         self._build_success = False
         self._build_status.configure(text="构建中...", text_color=("gray40", "gray60"))
         self._running = True
-        self._build_btn.configure(text="构建中...", state="disabled")
+        self._build_btn.configure(text="正在构建", state="disabled")
 
         # Run build in background
         threading.Thread(target=self._run_build, daemon=True).start()
@@ -567,7 +581,7 @@ class App(ctk.CTk):
             except BuildError as be:
                 for msg in be.errors:
                     self._log_view.write(f"[构建失败] {msg}")
-                self._highlight_tab("发布")
+                self._highlight_tab("构建")
                 self._build_success = False
                 return
             if target == "zip":
@@ -611,7 +625,7 @@ class App(ctk.CTk):
             self._log_view.write(f"[错误] 构建失败: {exc}")
         finally:
             self._running = False
-            self._build_btn.configure(text="构建", state="normal")
+            self._build_btn.configure(text="开始构建", state="normal")
             if self._build_success:
                 self._build_status.configure(text="✅ 构建成功", text_color="green")
             else:
@@ -675,6 +689,7 @@ class App(ctk.CTk):
         self._type_menu.configure(state="normal")
         self._type_menu.set(_TYPE_LABELS.get(self._build_system,
                                              _TYPE_LABELS["uv"]))
+        self._update_type_hint()
         self._dist_view.set_build_system(self._build_system)
 
         # Source dir（按系统独立：加载当前系统并刷新两个视图的显示）

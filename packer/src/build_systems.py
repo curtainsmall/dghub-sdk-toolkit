@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Any, Optional
 
-from exe_builder import build_plugin_exe, _NO_WINDOW
+from exe_builder import build_plugin_exe, _find_sdk_path, _NO_WINDOW
 
 
 @dataclass
@@ -36,6 +36,11 @@ class BuildError(Exception):
     def __init__(self, errors: list[str]) -> None:
         super().__init__("; ".join(errors))
         self.errors = errors
+
+
+# 清单已含 dghub-sdk 时，与「包含 dghub-sdk」选项撞车的统一告警文案
+_SDK_CONFLICT_MSG = ("检测到依赖清单已包含 dghub-sdk，跳过本地 SDK 注入"
+                     "（以清单版本为准；如需本地版请从清单移除 dghub-sdk）")
 
 
 def _run_logged(cmd: Any, log: Callable[[str], None],
@@ -65,11 +70,17 @@ class BuildSystemSupport:
 
     id = ""
     label = ""
+    description = ""  # 选择器旁的说明文案（空 = 不显示）
     dep_manifest_hint = ""  # 依赖清单文件名（UI「依赖来源」展示；空 = 无）
+    manifest_patterns: tuple[str, ...] = ()  # 文件选择对话框的清单匹配模式
 
     def check_available(self) -> tuple[bool, str]:
         """工具可用性预检，返回 (可用, 标注文案)。"""
         return True, ""
+
+    def is_known_manifest(self, filename: str) -> bool:
+        """选定的依赖清单文件名是否为本系统可识别的类型。"""
+        return True
 
     def validate(self, ctx: BuildContext) -> list[str]:
         """构建前静态校验，返回错误消息列表（空 = 通过）。"""
@@ -109,15 +120,23 @@ class _PythonBase(BuildSystemSupport):
         raise NotImplementedError
 
     def validate(self, ctx: BuildContext) -> list[str]:
+        errors: list[str] = []
+        # 选定的清单必须是本系统可识别的类型（未选 = 合法，跳过依赖打包）
+        manifest = ctx.dist_view.get_manifest()
+        if manifest and not self.is_known_manifest(Path(manifest).name):
+            errors.append(
+                f"无法识别的依赖清单: {Path(manifest).name}"
+                "（支持 pyproject.toml / setup.py / setup.cfg / "
+                "requirements*.txt）")
         entry = ctx.dist_view.get_entry()
         if not entry:
-            return ["入口文件不能为空"]
-        if not entry.lower().endswith(".py"):
-            return [f"{self.label} 系统的入口必须是 .py 文件: {entry}，"
-                    "如为已构建产物请将构建系统切换为「(无构建系统)」"]
-        if not (ctx.source_dir / entry).is_file():
-            return [f"入口文件不存在: {entry}"]
-        return []
+            errors.append("入口文件不能为空")
+        elif not entry.lower().endswith(".py"):
+            errors.append(f"{self.label} 系统的入口必须是 .py 文件: {entry}，"
+                          "如为已构建产物请将构建系统切换为「(无构建系统)」")
+        elif not (ctx.source_dir / entry).is_file():
+            errors.append(f"入口文件不存在: {entry}")
+        return errors
 
     def build_steps(self, ctx: BuildContext) -> bool:
         # 依赖 vendor：读用户选定的清单安装到临时 vendor/（不改项目文件）
@@ -140,16 +159,20 @@ class _PythonBase(BuildSystemSupport):
                                ctx.log, cwd=str(ctx.source_dir), env=env):
                 ctx.log("[错误] 依赖打包失败")
                 return False
-            ctx.log("依赖打包完成（清单内容不做逐包过滤，由项目清单自行控制；"
-                    "dghub-sdk 由「包含 dghub-sdk」选项单独注入）")
+            ctx.log("依赖打包完成（清单内容不做逐包过滤，由项目清单自行控制）")
 
         # 可选：构建独立 exe（PyInstaller）
         if ctx.dist_view.get_build_exe():
+            include_sdk = ctx.dist_view.get_include_sdk()
+            # 清单优先：清单已装 dghub-sdk 时不再让 PyInstaller 重复注入本地版
+            if include_sdk and (ctx.output_dir / "vendor" / "dghub_sdk").exists():
+                ctx.log(_SDK_CONFLICT_MSG)
+                include_sdk = False
             ctx.log("构建 exe...")
             ok = build_plugin_exe(
                 plugin_dir=str(ctx.plugin_dir),
                 source_dir=str(ctx.source_dir),
-                include_dghub_sdk=ctx.dist_view.get_include_sdk(),
+                include_dghub_sdk=include_sdk,
                 log_callback=ctx.log,
                 output_dir=str(ctx.output_dir),
                 entry=ctx.dist_view.get_entry(),
@@ -165,6 +188,34 @@ class _PythonBase(BuildSystemSupport):
                 import shutil
                 shutil.rmtree(build_dir)
             ctx.log("exe 构建完成")
+        elif ctx.dist_view.get_include_sdk():
+            # 非 exe 模式：将本地 dghub_sdk 复制进 vendor/（exe 模式由
+            # PyInstaller 的 --add-data 单独注入，不走这里）
+            if not self._inject_local_sdk(ctx):
+                return False
+        return True
+
+    def _inject_local_sdk(self, ctx: BuildContext) -> bool:
+        """把本地 dghub_sdk 包复制进 vendor/；清单已提供则跳过（清单优先）。"""
+        import shutil
+        vendor_dir = ctx.output_dir / "vendor"
+        dest = vendor_dir / "dghub_sdk"
+        if dest.exists():
+            ctx.log(_SDK_CONFLICT_MSG)
+            return True
+        src = Path(_find_sdk_path()) / "dghub_sdk"
+        if not src.is_dir():
+            ctx.log(f"[错误] 未找到本地 dghub_sdk 包: {src}")
+            return False
+        try:
+            vendor_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(src, dest,
+                            ignore=shutil.ignore_patterns(
+                                "__pycache__", "*.pyc"))
+        except OSError as exc:
+            ctx.log(f"[错误] 复制 dghub_sdk 失败: {exc}")
+            return False
+        ctx.log("已将本地 dghub-sdk 注入 vendor/")
         return True
 
     def manifest_entry(self, ctx: BuildContext) -> str:
@@ -200,6 +251,9 @@ class UvSystem(_PythonBase):
     id = "uv"
     label = "Python - uv"
     dep_manifest_hint = "pyproject.toml"
+    # 与 is_known_manifest 保持一致（uv 的 -r 支持的清单类型）
+    manifest_patterns = ("pyproject.toml", "setup.py", "setup.cfg",
+                         "requirements*.txt")
 
     def check_available(self) -> tuple[bool, str]:
         try:
@@ -211,6 +265,12 @@ class UvSystem(_PythonBase):
         except Exception:
             pass
         return False, "未检测到 uv，请 pip install uv"
+
+    def is_known_manifest(self, filename: str) -> bool:
+        # uv 的 -r 支持：requirements 格式、pyproject.toml、setup.py、setup.cfg
+        name = filename.lower()
+        return name in ("pyproject.toml", "setup.py", "setup.cfg") or (
+            name.startswith("requirements") and name.endswith(".txt"))
 
     def _vendor_cmd(self, manifest: Path, vendor_dir: Path) -> list[str]:
         # uv 支持从 pyproject.toml / requirements 格式文件直接解析依赖
@@ -231,6 +291,7 @@ class GenericSupport(BuildSystemSupport):
 
     id = "generic"
     label = "(无构建系统)"
+    description = "不使用任何构建器：可选执行预构建命令后，直接打包收集目录内的原始文件"
 
     def validate(self, ctx: BuildContext) -> list[str]:
         # 仅静态校验；entry / 附加文件存在性延迟到 pre-build 之后

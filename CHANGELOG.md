@@ -7,6 +7,37 @@
 版本号为 toolkit 发布批次号，Packer 与 SDK 统一使用；SDK 仅在自身有变更
 的批次发布至 PyPI（版本跳号为预期行为）。
 
+## [0.2.2] - 2026-07-30
+
+### 新增
+
+- **Packer**：构建选项「包含 dghub-sdk」在非 exe 模式下也生效——将本地
+  dghub-sdk 复制进 `vendor/`；exe 与非 exe 模式均遵循「清单优先」，若依赖
+  清单已声明 dghub-sdk 则以清单版为准并跳过本地注入（避免版本撞车）
+- **Packer**：uv 依赖清单支持 `pyproject.toml` / `setup.py` / `setup.cfg` /
+  `requirements*.txt`，文件选择对话框按这些格式过滤；依赖来源面板三态显示
+  （绿色已选 / 黄色未选 / 浅红未知格式），未知格式在构建校验时拦截
+
+### 变更
+
+- **Packer**：「发布」标签页更名为「构建」（内容为构建配置，与底部
+  「构建」按钮呼应；"发布目标"选项名不变）；底部按钮文案改为
+  「开始构建 / 正在构建」
+- **Packer**：构建系统说明文案移至顶部栏选择器右侧（原在构建页内）
+- **发布流程**：GitHub Release 标题精简为版本号（如 `v0.2.2`）；正文不再
+  附加自动生成的「What's Changed」（其仅统计 PR，对本项目直推发布流无效），
+  内容完全由本文件对应版本段落提供
+
+### 修复
+
+- Packer exe 构建入口未同步构建页配置的 entry（`src/` 布局下曾误用插件根
+  的 `main.py` 导致构建失败）
+- Packer 构建页入口文件输入框与上下行左边界未对齐（标签列缺 5px 间距）
+- 修正 Packer 文档中过时的信息：manifest 口径统一为**构建时自动生成**
+  （移除"编辑 manifest"表述）；插件目录不再要求预先存在 `manifest.json`
+  （任意文件夹首次选择即初始化）；信息页字段列表与实际一致（entry 移至
+  构建页按构建系统配置）；补充日志页说明；README 功能列表同步
+
 ## [0.2.1] - 2026-07-29
 
 ### 修复
@@ -68,6 +99,7 @@
 
 历史版本，详见 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases)。
 
+[0.2.2]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/curtainsmall/dghub-sdk-toolkit/releases/tag/v0.1.3
