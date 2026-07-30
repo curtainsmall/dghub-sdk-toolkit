@@ -16,6 +16,7 @@ from typing import Any, Optional
 
 from exe_builder import build_plugin_exe, _find_sdk_path, _NO_WINDOW
 from logbus import Logger
+from build_control import Canceller
 
 
 @dataclass
@@ -29,6 +30,7 @@ class BuildContext:
     dist_view: Any
     log: Logger
     pypi_index: str = ""  # PyPI 镜像源 URL，空 = 跟随 uv 默认
+    canceller: Optional[Canceller] = None  # 构建取消令牌（None = 不可取消）
 
 
 class BuildError(Exception):
@@ -47,21 +49,38 @@ _SDK_CONFLICT_MSG = ("检测到依赖清单已包含 dghub-sdk，跳过本地 SD
 def _run_logged(cmd: Any, logger: Logger, source: str,
                 cwd: Optional[str] = None, shell: bool = False,
                 timeout: int = 900,
-                env: Optional[dict] = None) -> bool:
-    """执行子进程，输出以来源分隔块记录，返回是否成功。"""
+                env: Optional[dict] = None,
+                canceller: Optional[Canceller] = None) -> bool:
+    """执行子进程（可取消），输出以来源分隔块记录，返回是否成功。
+
+    用 Popen 而非 run，以便 canceller 在另一线程终止进程树。
+    """
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout,
-            cwd=cwd, shell=shell, env=env, creationflags=_NO_WINDOW)
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, cwd=cwd, shell=shell, env=env,
+            creationflags=_NO_WINDOW)
     except FileNotFoundError:
         logger.error(f"命令不存在: {cmd}")
         return False
+    if canceller is not None:
+        canceller.set_proc(proc)
+    try:
+        out, _ = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
+        proc.kill()
+        out, _ = proc.communicate()
         logger.error(f"命令超时: {cmd}")
+        logger.external(source, (out or "").splitlines(), proc.returncode)
         return False
-    lines = (result.stdout or "").splitlines() + (result.stderr or "").splitlines()
-    logger.external(source, lines, result.returncode)
-    return result.returncode == 0
+    finally:
+        if canceller is not None:
+            canceller.set_proc(None)
+    logger.external(source, (out or "").splitlines(), proc.returncode)
+    if canceller is not None and canceller.cancelled:
+        logger.warning(f"{source} 已取消")
+        return False
+    return proc.returncode == 0
 
 
 class BuildSystemSupport:
@@ -155,7 +174,8 @@ class _PythonBase(BuildSystemSupport):
                 env = {**os.environ, "UV_DEFAULT_INDEX": ctx.pypi_index}
                 ctx.log.detail(f"使用 PyPI 镜像源: {ctx.pypi_index}")
             if not _run_logged(self._vendor_cmd(manifest, vendor_dir),
-                               ctx.log, "uv", cwd=str(ctx.source_dir), env=env):
+                               ctx.log, "uv", cwd=str(ctx.source_dir),
+                               env=env, canceller=ctx.canceller):
                 ctx.log.error("依赖打包失败")
                 return False
             ctx.log.info("依赖打包完成")
@@ -175,6 +195,7 @@ class _PythonBase(BuildSystemSupport):
                 logger=ctx.log,
                 output_dir=str(ctx.output_dir),
                 entry=ctx.dist_view.get_entry(),
+                canceller=ctx.canceller,
             )
             if not ok:
                 ctx.log.error("exe 构建失败")
@@ -306,7 +327,8 @@ class GenericSupport(BuildSystemSupport):
             return True
         exec_dir = ctx.dist_view.get_exec_dir() or str(ctx.plugin_dir)
         ctx.log.info(f"执行 pre-build（执行目录 {exec_dir}）: {cmd}")
-        if not _run_logged(cmd, ctx.log, "pre-build", cwd=exec_dir, shell=True):
+        if not _run_logged(cmd, ctx.log, "pre-build", cwd=exec_dir,
+                           shell=True, canceller=ctx.canceller):
             ctx.log.error("pre-build 命令失败（非零返回码）")
             return False
         ctx.log.info("pre-build 完成")

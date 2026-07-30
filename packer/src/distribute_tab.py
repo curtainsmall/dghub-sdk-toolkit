@@ -63,6 +63,7 @@ class DistributeTab(ctk.CTkFrame):
     def __init__(self, master: Any,
                  on_select_source: Optional[Callable[[], None]] = None,
                  on_reset_source: Optional[Callable[[], None]] = None,
+                 on_entry_edit: Optional[Callable[[], None]] = None,
                  **kwargs: Any) -> None:
         super().__init__(master, **kwargs)
         self._pm: Optional[ProjectManager] = None
@@ -77,6 +78,8 @@ class DistributeTab(ctk.CTkFrame):
         # app.py 注入的目录选择/重置回调（目录状态由 App 统一管理）
         self._on_select_source = on_select_source
         self._on_reset_source = on_reset_source
+        # 入口被编辑时回调 → 供 app 级联清除错误高亮
+        self._on_entry_edit = on_entry_edit
         self._src_rows: dict[str, dict[str, Any]] = {}
         self._build_ui()
         self._set_enabled(False)
@@ -126,6 +129,9 @@ class DistributeTab(ctk.CTkFrame):
         # 变更即保存
         self._entry_var.trace_add("write", self._on_setting_changed)
         self._entry_generic_var.trace_add("write", self._on_setting_changed)
+        # 入口编辑 → 清红框并通知 app 级联清除高亮
+        self._entry_var.trace_add("write", self._on_entry_error_edit)
+        self._entry_generic_var.trace_add("write", self._on_entry_error_edit)
         self._pre_build_var.trace_add("write", self._on_setting_changed)
         # pre-build 有无决定执行目录行的可用性
         self._pre_build_var.trace_add(
@@ -779,6 +785,14 @@ class DistributeTab(ctk.CTkFrame):
             return
         self.save_settings()
 
+    def _on_entry_error_edit(self, *args: Any) -> None:
+        """入口输入变更：清除入口红框并通知 app 级联清除 tab/状态高亮。"""
+        if self._loading:
+            return
+        self.clear_entry_error()
+        if self._on_entry_edit:
+            self._on_entry_edit()
+
     def set_plugin_dir(self, d: str, pm: Optional[ProjectManager] = None) -> None:
         if pm:
             self._pm = pm
@@ -925,6 +939,8 @@ class DistributeTab(ctk.CTkFrame):
         return self._target_var.get()
 
     def clear_entry_error(self) -> None:
-        """Reset entry field border after source dir change."""
-        self._entry_entry.configure(border_width=0)
-        self._entry_generic_entry.configure(border_width=0)
+        """将入口输入框恢复为主题默认边框（清除错误红框，保留正常灰边）。"""
+        for entry in (self._entry_entry, self._entry_generic_entry):
+            entry.configure(
+                border_width=ctk.ThemeManager.theme["CTkEntry"]["border_width"],
+                border_color=ctk.ThemeManager.theme["CTkEntry"]["border_color"])

@@ -120,7 +120,7 @@ def test_uv_build_steps_uses_pypi_index_env(make_ctx, monkeypatch):
     captured: dict = {}
 
     def fake_run_logged(cmd, logger, source, cwd=None, shell=False,
-                        timeout=900, env=None):
+                        timeout=900, env=None, canceller=None):
         captured["env"] = env
         return True
 
@@ -144,7 +144,7 @@ def test_uv_build_steps_no_index_env_by_default(make_ctx, monkeypatch):
     captured: dict = {}
 
     def fake_run_logged(cmd, logger, source, cwd=None, shell=False,
-                        timeout=900, env=None):
+                        timeout=900, env=None, canceller=None):
         captured["env"] = env
         return True
 

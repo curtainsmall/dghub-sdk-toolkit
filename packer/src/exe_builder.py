@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from logbus import Logger
+from build_control import Canceller
 
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
@@ -106,6 +107,7 @@ def build_plugin_exe(
     output_dir: str = "",
     source_dir: str = "",
     entry: str = "",
+    canceller: Optional[Canceller] = None,
 ) -> bool:
     """Build a self-contained .exe from a DGHub plugin directory.
 
@@ -181,10 +183,11 @@ def build_plugin_exe(
     log.detail(f"工作目录: {pdir}")
 
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             cwd=str(pdir),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
             creationflags=_NO_WINDOW,
         )
@@ -195,11 +198,23 @@ def build_plugin_exe(
         log.error(f"启动 PyInstaller 失败: {exc}")
         return False
 
+    if canceller is not None:
+        canceller.set_proc(proc)
+    try:
+        out, _ = proc.communicate()
+    finally:
+        if canceller is not None:
+            canceller.set_proc(None)
+
+    if canceller is not None and canceller.cancelled:
+        log.warning("PyInstaller 已取消")
+        return False
+
     # PyInstaller 输出：失败时以来源块记录末尾若干行
-    if result.returncode != 0:
-        log.error(f"PyInstaller 构建失败（退出码 {result.returncode}）")
-        stderr_tail = result.stderr.strip().splitlines()[-10:]
-        log.external("PyInstaller", stderr_tail, result.returncode)
+    if proc.returncode != 0:
+        log.error(f"PyInstaller 构建失败（退出码 {proc.returncode}）")
+        stderr_tail = (out or "").strip().splitlines()[-10:]
+        log.external("PyInstaller", stderr_tail, proc.returncode)
         return False
 
     if not exe_output.is_file():
