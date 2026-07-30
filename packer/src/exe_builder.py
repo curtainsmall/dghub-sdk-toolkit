@@ -9,11 +9,34 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
-from vendor_packer import _get_python_exe
+from logbus import Logger
 
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+
+def _get_python_exe() -> list[str]:
+    """Return [python_exe] suitable for subprocess, handles frozen exe.
+
+    冻结（打包 exe）运行时进程内没有可用的 Python 解释器，改用系统 Python。
+    """
+    if not getattr(sys, "frozen", False):
+        return [sys.executable]
+    for cmd in [["py", "-3"], ["py"], ["python"], ["python3"]]:
+        try:
+            result = subprocess.run(
+                cmd + ["-c", "import sys; print(sys.executable)"],
+                capture_output=True, text=True, timeout=5,
+                creationflags=_NO_WINDOW,
+            )
+            if result.returncode == 0:
+                stripped = result.stdout.strip()
+                if stripped:
+                    return [stripped]
+        except Exception:
+            continue
+    return [sys.executable]  # fallback
 
 
 # ---------------------------------------------------------------------------
@@ -44,13 +67,7 @@ def _read_entry(plugin_dir: Path) -> str:
     return "main.py"
 
 
-def _log(msg: str, cb: Optional[Callable[[str], None]]) -> None:
-    if cb:
-        cb(msg)
-
-
-def _check_pyinstaller(py_exe: list[str],
-                       cb: Optional[Callable[[str], None]]) -> bool:
+def _check_pyinstaller(py_exe: list[str], logger: Logger) -> bool:
     """Verify PyInstaller is available before starting the build.
 
     Runs ``python -m PyInstaller --version``. Returns True on success,
@@ -65,16 +82,16 @@ def _check_pyinstaller(py_exe: list[str],
             creationflags=_NO_WINDOW,
         )
     except FileNotFoundError:
-        _log("[错误] 未找到 Python 解释器，无法调用 PyInstaller", cb)
+        logger.error("未找到 Python 解释器，无法调用 PyInstaller")
         return False
     except Exception as exc:
-        _log(f"[错误] 检测 PyInstaller 失败: {exc}", cb)
+        logger.error(f"检测 PyInstaller 失败: {exc}")
         return False
     if result.returncode != 0:
-        _log("[错误] 未检测到 PyInstaller，请在构建环境执行 "
-             "pip install pyinstaller", cb)
+        logger.error("未检测到 PyInstaller，请在构建环境执行 "
+                     "pip install pyinstaller")
         return False
-    _log(f"  PyInstaller 版本: {result.stdout.strip()}", cb)
+    logger.detail(f"PyInstaller 版本: {result.stdout.strip()}")
     return True
 
 
@@ -85,7 +102,7 @@ def _check_pyinstaller(py_exe: list[str],
 def build_plugin_exe(
     plugin_dir: str,
     include_dghub_sdk: bool = True,
-    log_callback: Optional[Callable[[str], None]] = None,
+    logger: Optional[Logger] = None,
     output_dir: str = "",
     source_dir: str = "",
     entry: str = "",
@@ -96,24 +113,25 @@ def build_plugin_exe(
         plugin_dir: Absolute path to plugin root (where .dghub-sdk lives).
         source_dir: Absolute path to source code root (defaults to plugin_dir).
         include_dghub_sdk: Whether to bundle dghub_sdk.
-        log_callback: Optional progress callback.
+        logger: 可选日志器；缺省时静默。
         output_dir: Output directory for the exe.
         entry: 入口文件（相对 source_dir）；缺省时回退读插件根 manifest.json。
 
     Returns:
         True on success.
     """
+    log = logger or Logger(lambda _msg, _level: None)
     pdir = Path(plugin_dir).resolve()
     sdir = Path(source_dir).resolve() if source_dir else pdir
     if not pdir.is_dir():
-        _log(f"[错误] 插件目录不存在: {pdir}", log_callback)
+        log.error(f"插件目录不存在: {pdir}")
         return False
 
     if not entry:
         entry = _read_entry(pdir)
     entry_path = sdir / entry
     if not entry_path.is_file():
-        _log(f"[错误] 入口文件不存在: {entry_path}", log_callback)
+        log.error(f"入口文件不存在: {entry_path}")
         return False
 
     out_dir = Path(output_dir).resolve() if output_dir else pdir / "output"
@@ -124,12 +142,12 @@ def build_plugin_exe(
     exe_output = out_dir / f"{exe_name}.exe"
     cache_dir = out_dir / "cache"
 
-    _log(f"[开始] 打包插件 exe: {pdir}", log_callback)
-    _log(f"  入口: {entry}", log_callback)
+    log.info(f"打包插件 exe: {pdir}")
+    log.detail(f"入口: {entry}")
 
     # ---- build PyInstaller command ----
     py_exe = _get_python_exe()
-    if not _check_pyinstaller(py_exe, log_callback):
+    if not _check_pyinstaller(py_exe, log):
         return False
     cmd = py_exe + [
         "-m", "PyInstaller",
@@ -149,18 +167,18 @@ def build_plugin_exe(
         cmd += ["--hidden-import", "dghub_sdk.agent"]
         cmd += ["--hidden-import", "dghub_sdk.codec"]
         cmd += ["--hidden-import", "dghub_sdk.enums"]
-        _log(f"  dghub_sdk 路径: {sdk_path}", log_callback)
+        log.detail(f"dghub_sdk 路径: {sdk_path}")
 
     # vendor path (if exists and not empty)
     if vendor_dir.is_dir() and any(vendor_dir.iterdir()):
         cmd += ["--paths", str(vendor_dir)]
-        _log(f"  vendor 路径: {vendor_dir}", log_callback)
+        log.detail(f"vendor 路径: {vendor_dir}")
 
     # entry
     cmd.append(str(entry_path))
 
-    _log(f"[运行] PyInstaller ...", log_callback)
-    _log(f"  工作目录: {pdir}", log_callback)
+    log.info("运行 PyInstaller ...")
+    log.detail(f"工作目录: {pdir}")
 
     try:
         result = subprocess.run(
@@ -171,25 +189,23 @@ def build_plugin_exe(
             creationflags=_NO_WINDOW,
         )
     except FileNotFoundError:
-        _log("[错误] 未找到 Python 解释器，无法运行 PyInstaller", log_callback)
+        log.error("未找到 Python 解释器，无法运行 PyInstaller")
         return False
     except Exception as exc:
-        _log(f"[错误] 启动 PyInstaller 失败: {exc}", log_callback)
+        log.error(f"启动 PyInstaller 失败: {exc}")
         return False
 
-    # log PyInstaller output (last few lines on failure)
+    # PyInstaller 输出：失败时以来源块记录末尾若干行
     if result.returncode != 0:
-        _log(f"[错误] PyInstaller 退出码: {result.returncode}", log_callback)
+        log.error(f"PyInstaller 构建失败（退出码 {result.returncode}）")
         stderr_tail = result.stderr.strip().splitlines()[-10:]
-        for line in stderr_tail:
-            _log(f"  {line}", log_callback)
+        log.external("PyInstaller", stderr_tail, result.returncode)
         return False
 
     if not exe_output.is_file():
-        _log(f"[错误] 未生成 exe: {exe_output}", log_callback)
+        log.error(f"未生成 exe: {exe_output}")
         return False
 
     size_kb = exe_output.stat().st_size / 1024
-    _log(f"[完成] {exe_output} ({size_kb:.1f} KB)", log_callback)
-    _log(f"[提示] 将 manifest.json 中 entry 改为 \"{exe_name}.exe\" 即可分发", log_callback)
+    log.info(f"exe 构建产物: {exe_output} ({size_kb:.1f} KB)")
     return True

@@ -12,9 +12,10 @@ import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Any, Optional
+from typing import Any, Optional
 
 from exe_builder import build_plugin_exe, _find_sdk_path, _NO_WINDOW
+from logbus import Logger
 
 
 @dataclass
@@ -26,7 +27,7 @@ class BuildContext:
     output_dir: Path
     plugin_name: str
     dist_view: Any
-    log: Callable[[str], None]
+    log: Logger
     pypi_index: str = ""  # PyPI 镜像源 URL，空 = 跟随 uv 默认
 
 
@@ -43,25 +44,23 @@ _SDK_CONFLICT_MSG = ("检测到依赖清单已包含 dghub-sdk，跳过本地 SD
                      "（以清单版本为准；如需本地版请从清单移除 dghub-sdk）")
 
 
-def _run_logged(cmd: Any, log: Callable[[str], None],
+def _run_logged(cmd: Any, logger: Logger, source: str,
                 cwd: Optional[str] = None, shell: bool = False,
                 timeout: int = 900,
                 env: Optional[dict] = None) -> bool:
-    """执行子进程，stdout/stderr 逐行写日志，返回是否成功。"""
+    """执行子进程，输出以来源分隔块记录，返回是否成功。"""
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout,
             cwd=cwd, shell=shell, env=env, creationflags=_NO_WINDOW)
     except FileNotFoundError:
-        log(f"[错误] 命令不存在: {cmd}")
+        logger.error(f"命令不存在: {cmd}")
         return False
     except subprocess.TimeoutExpired:
-        log(f"[错误] 命令超时: {cmd}")
+        logger.error(f"命令超时: {cmd}")
         return False
-    for line in (result.stdout or "").splitlines():
-        log(f"  {line}")
-    for line in (result.stderr or "").splitlines():
-        log(f"  {line}")
+    lines = (result.stdout or "").splitlines() + (result.stderr or "").splitlines()
+    logger.external(source, lines, result.returncode)
     return result.returncode == 0
 
 
@@ -142,43 +141,43 @@ class _PythonBase(BuildSystemSupport):
         # 依赖 vendor：读用户选定的清单安装到临时 vendor/（不改项目文件）
         manifest_path = ctx.dist_view.get_manifest()
         if not manifest_path:
-            ctx.log(f"未选择依赖清单（{self.dep_manifest_hint}），跳过依赖打包"
-                    "（无第三方依赖时属正常情形）")
+            ctx.log.warning(f"未选择依赖清单（{self.dep_manifest_hint}），跳过依赖打包"
+                            "（无第三方依赖时属正常情形）")
         else:
             manifest = Path(manifest_path)
             if not manifest.is_file():
-                ctx.log(f"[错误] 依赖清单不存在: {manifest}")
+                ctx.log.error(f"依赖清单不存在: {manifest}")
                 return False
-            ctx.log(f"依赖来源: {manifest}，安装到 vendor/ ...")
+            ctx.log.info(f"依赖来源: {manifest}，安装到 vendor/ ...")
             vendor_dir = ctx.output_dir / "vendor"
             env = None
             if ctx.pypi_index:
                 env = {**os.environ, "UV_DEFAULT_INDEX": ctx.pypi_index}
-                ctx.log(f"使用 PyPI 镜像源: {ctx.pypi_index}")
+                ctx.log.detail(f"使用 PyPI 镜像源: {ctx.pypi_index}")
             if not _run_logged(self._vendor_cmd(manifest, vendor_dir),
-                               ctx.log, cwd=str(ctx.source_dir), env=env):
-                ctx.log("[错误] 依赖打包失败")
+                               ctx.log, "uv", cwd=str(ctx.source_dir), env=env):
+                ctx.log.error("依赖打包失败")
                 return False
-            ctx.log("依赖打包完成（清单内容不做逐包过滤，由项目清单自行控制）")
+            ctx.log.info("依赖打包完成")
 
         # 可选：构建独立 exe（PyInstaller）
         if ctx.dist_view.get_build_exe():
             include_sdk = ctx.dist_view.get_include_sdk()
             # 清单优先：清单已装 dghub-sdk 时不再让 PyInstaller 重复注入本地版
             if include_sdk and (ctx.output_dir / "vendor" / "dghub_sdk").exists():
-                ctx.log(_SDK_CONFLICT_MSG)
+                ctx.log.warning(_SDK_CONFLICT_MSG)
                 include_sdk = False
-            ctx.log("构建 exe...")
+            ctx.log.info("构建 exe...")
             ok = build_plugin_exe(
                 plugin_dir=str(ctx.plugin_dir),
                 source_dir=str(ctx.source_dir),
                 include_dghub_sdk=include_sdk,
-                log_callback=ctx.log,
+                logger=ctx.log,
                 output_dir=str(ctx.output_dir),
                 entry=ctx.dist_view.get_entry(),
             )
             if not ok:
-                ctx.log("[错误] exe 构建失败")
+                ctx.log.error("exe 构建失败")
                 return False
             # 清理 PyInstaller 残留（插件目录内，构建后即清）
             for leftover in ctx.plugin_dir.glob("*.spec"):
@@ -187,7 +186,7 @@ class _PythonBase(BuildSystemSupport):
             if build_dir.is_dir():
                 import shutil
                 shutil.rmtree(build_dir)
-            ctx.log("exe 构建完成")
+            ctx.log.info("exe 构建完成")
         elif ctx.dist_view.get_include_sdk():
             # 非 exe 模式：将本地 dghub_sdk 复制进 vendor/（exe 模式由
             # PyInstaller 的 --add-data 单独注入，不走这里）
@@ -201,11 +200,11 @@ class _PythonBase(BuildSystemSupport):
         vendor_dir = ctx.output_dir / "vendor"
         dest = vendor_dir / "dghub_sdk"
         if dest.exists():
-            ctx.log(_SDK_CONFLICT_MSG)
+            ctx.log.warning(_SDK_CONFLICT_MSG)
             return True
         src = Path(_find_sdk_path()) / "dghub_sdk"
         if not src.is_dir():
-            ctx.log(f"[错误] 未找到本地 dghub_sdk 包: {src}")
+            ctx.log.error(f"未找到本地 dghub_sdk 包: {src}")
             return False
         try:
             vendor_dir.mkdir(parents=True, exist_ok=True)
@@ -213,9 +212,9 @@ class _PythonBase(BuildSystemSupport):
                             ignore=shutil.ignore_patterns(
                                 "__pycache__", "*.pyc"))
         except OSError as exc:
-            ctx.log(f"[错误] 复制 dghub_sdk 失败: {exc}")
+            ctx.log.error(f"复制 dghub_sdk 失败: {exc}")
             return False
-        ctx.log("已将本地 dghub-sdk 注入 vendor/")
+        ctx.log.info("已将本地 dghub-sdk 注入 vendor/")
         return True
 
     def manifest_entry(self, ctx: BuildContext) -> str:
@@ -303,14 +302,14 @@ class GenericSupport(BuildSystemSupport):
     def build_steps(self, ctx: BuildContext) -> bool:
         cmd = ctx.dist_view.get_pre_build().strip()
         if not cmd:
-            ctx.log("(无构建系统)：无 pre-build 命令，直接收集文件")
+            ctx.log.info("(无构建系统)：无 pre-build 命令，直接收集文件")
             return True
         exec_dir = ctx.dist_view.get_exec_dir() or str(ctx.plugin_dir)
-        ctx.log(f"执行 pre-build（执行目录 {exec_dir}）: {cmd}")
-        if not _run_logged(cmd, ctx.log, cwd=exec_dir, shell=True):
-            ctx.log("[错误] pre-build 命令失败（非零返回码）")
+        ctx.log.info(f"执行 pre-build（执行目录 {exec_dir}）: {cmd}")
+        if not _run_logged(cmd, ctx.log, "pre-build", cwd=exec_dir, shell=True):
+            ctx.log.error("pre-build 命令失败（非零返回码）")
             return False
-        ctx.log("pre-build 完成")
+        ctx.log.info("pre-build 完成")
         return True
 
     def collect_output(self, ctx: BuildContext) -> list[tuple[Path, str]]:
@@ -356,7 +355,7 @@ class GenericSupport(BuildSystemSupport):
             if "pattern" in item:
                 matched = evaluate_pattern(ctx.source_dir, item["pattern"])
                 if not matched:
-                    ctx.log(f"[提示] 规则无匹配: {item['pattern']}")
+                    ctx.log.warning(f"规则无匹配: {item['pattern']}")
                 for rel in matched:
                     _add(rel, item["dest"])
 

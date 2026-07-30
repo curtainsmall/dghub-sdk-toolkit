@@ -14,9 +14,8 @@ from typing import Any, Callable, Optional
 import customtkinter as ctk
 
 from build_systems import BUILD_SYSTEMS, evaluate_pattern
-from exe_builder import _NO_WINDOW
+from exe_builder import _NO_WINDOW, _get_python_exe
 from project_manager import ProjectManager
-from vendor_packer import _get_python_exe
 
 # 目标位置显示名 ↔ 存储值
 _DEST_LABELS = {"root": "根目录", "vendor": "vendor/"}

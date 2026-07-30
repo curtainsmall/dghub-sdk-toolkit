@@ -1,5 +1,6 @@
 """Main application window — cross-tab layout with top/bottom bars."""
 
+import datetime
 import json
 import os
 import threading
@@ -19,6 +20,7 @@ from distribute_tab import DistributeTab
 from build_systems import (BUILD_SYSTEMS, BuildContext, BuildError,
                            read_tool_dghub_entry)
 from log_tab import LogTab
+from logbus import Logger
 from manifest_tab import ManifestTab
 from project_manager import (ProjectManager, project_exists,
                              UnsupportedFormatError)
@@ -118,6 +120,7 @@ class App(ctk.CTk):
 
         self._log_view = LogTab(self._log_tab)
         self._log_view.pack(fill="both", expand=True)
+        self._logger = Logger(self._log_view.emit)
 
         # -- bottom bar (cross-tab) --
         self._build_bottom_bar()
@@ -346,7 +349,7 @@ class App(ctk.CTk):
             auto_entry = read_tool_dghub_entry(Path(f))
             if auto_entry:
                 self._dist_view.set_entry(auto_entry)
-                self._log_view.write(
+                self._logger.info(
                     f"已从 [tool.dghub] 自动填充入口: {auto_entry}")
         self._dist_view.set_source_dir(self._source_dir)
         self._push_source_display()
@@ -450,7 +453,7 @@ class App(ctk.CTk):
         version_val = manifest.get("version", "")
 
         if not id_val:
-            self._log_view.write("[校验失败] 信息 → id 不能为空")
+            self._logger.error("信息 → id 不能为空")
             self._highlight_tab("信息")
             w = self._info_view._fields.get("id")
             if w:
@@ -459,7 +462,7 @@ class App(ctk.CTk):
             return False
 
         if not name_val:
-            self._log_view.write("[校验失败] 信息 → name 不能为空")
+            self._logger.error("信息 → name 不能为空")
             self._highlight_tab("信息")
             w = self._info_view._fields.get("name")
             if w:
@@ -468,7 +471,7 @@ class App(ctk.CTk):
             return False
 
         if not version_val:
-            self._log_view.write("[校验失败] 信息 → version 不能为空")
+            self._logger.error("信息 → version 不能为空")
             self._highlight_tab("信息")
             w = self._info_view._fields.get("version")
             if w:
@@ -485,7 +488,7 @@ class App(ctk.CTk):
         errors = bs.validate(ctx)
         if errors:
             for msg in errors:
-                self._log_view.write(f"[校验失败] 构建 → {msg}")
+                self._logger.error(f"构建 → {msg}")
             self._highlight_tab("构建")
             # 入口类错误同时红框对应 entry 控件
             if any("入口" in msg for msg in errors):
@@ -496,7 +499,7 @@ class App(ctk.CTk):
             self._tab_view.set("构建")
             return False
         if not self._output_dir:
-            self._log_view.write("[校验失败] 输出目录未选择")
+            self._logger.error("输出目录未选择")
             self._out_path_frame.configure(border_width=2, border_color="red")
             self._out_label.configure(text_color="red")
             return False
@@ -511,7 +514,7 @@ class App(ctk.CTk):
             output_dir=Path(self._output_dir) if self._output_dir else plugin_dir / "output",
             plugin_name=plugin_dir.name,
             dist_view=self._dist_view,
-            log=self._log_view.write,
+            log=self._logger,
             pypi_index=self._settings_view.get_pypi_index(),
         )
 
@@ -524,13 +527,14 @@ class App(ctk.CTk):
             return
         if not self._plugin_dir:
             self._build_status.configure(text="请先选择插件目录", text_color="red")
-            self._log_view.write("[错误] 请先选择插件目录")
+            self._logger.error("请先选择插件目录")
             self._dir_path_frame.configure(border_width=2, border_color="red")
             self._dir_label.configure(text="请选择插件目录", text_color="red")
             return
 
         self._clear_error_styles()
-        self._log_view.clear()
+        self._logger.separator(
+            f"构建 {datetime.datetime.now().strftime('%H:%M:%S')}")
         self._build_success = False
         self._build_status.configure(text="构建中...", text_color=("gray40", "gray60"))
         self._running = True
@@ -543,17 +547,17 @@ class App(ctk.CTk):
         """Validate and execute the build pipeline."""
         try:
             # Step 1: validate
-            self._log_view.write("=== 开始校验 ===")
+            self._logger.info("开始校验")
             if not self._validate_info_tab():
                 return
             if not self._validate_dist_tab():
                 return
-            self._log_view.write("校验通过 ✓")
+            self._logger.info("校验通过")
             self._build_success = True
 
             # Step 2: save settings
             self._dist_view.save_settings()
-            self._log_view.write("配置已保存")
+            self._logger.detail("配置已保存")
 
             # Step 3: prepare context
             bs = BUILD_SYSTEMS[self._build_system]
@@ -580,7 +584,7 @@ class App(ctk.CTk):
                 out_files = bs.collect_output(ctx)
             except BuildError as be:
                 for msg in be.errors:
-                    self._log_view.write(f"[构建失败] {msg}")
+                    self._logger.error(msg)
                 self._highlight_tab("构建")
                 self._build_success = False
                 return
@@ -591,9 +595,8 @@ class App(ctk.CTk):
                     zf.writestr("manifest.json", manifest_json)
                     for src, arc in out_files:
                         zf.write(src, arc)
-                    self._log_view.write(f"打包 zip: {zip_path}")
                 size_kb = zip_path.stat().st_size / 1024
-                self._log_view.write(f"[完成] {zip_path} ({size_kb:.1f} KB)")
+                self._logger.success(f"打包完成: {zip_path} ({size_kb:.1f} KB)")
             elif target == "folder":
                 import shutil
                 folder_dir = ctx.output_dir / ctx.plugin_name
@@ -606,8 +609,8 @@ class App(ctk.CTk):
                     try:
                         shutil.copy2(src, dst)
                     except Exception as exc:
-                        self._log_view.write(f"[警告] 复制文件失败: {exc}")
-                self._log_view.write(f"[完成] 文件夹已发布: {folder_dir}")
+                        self._logger.warning(f"复制文件失败: {exc}")
+                self._logger.success(f"文件夹已发布: {folder_dir}")
 
             # Cleanup temp vendor, cache, and exe (intermediate artifact)
             import shutil
@@ -622,7 +625,7 @@ class App(ctk.CTk):
                 exe_file.unlink()
 
         except Exception as exc:
-            self._log_view.write(f"[错误] 构建失败: {exc}")
+            self._logger.error(f"构建失败: {exc}")
         finally:
             self._running = False
             self._build_btn.configure(text="开始构建", state="normal")
@@ -670,11 +673,11 @@ class App(ctk.CTk):
         self._dir_path_frame.configure(border_width=0)
 
         # Initialize project manager（旧格式破坏性升级：重置为默认值并日志提示）
-        self._pm = ProjectManager(d, log=self._log_view.write)
+        self._pm = ProjectManager(d, log=self._logger)
         try:
             project = self._pm.read_project()
         except UnsupportedFormatError as exc:
-            self._log_view.write(f"[错误] {exc}")
+            self._logger.error(str(exc))
             self._pm = None
             return
 
@@ -714,5 +717,5 @@ class App(ctk.CTk):
         self._set_reset_visible(self._out_reset_btn, not self._output_auto)
         self._dist_view.refresh_preview(self._output_dir)
 
-        self._log_view.write(f"已加载项目: {d}")
+        self._logger.info(f"已加载项目: {d}")
         self._save_last_plugin_dir(d)

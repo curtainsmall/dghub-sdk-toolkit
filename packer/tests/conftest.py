@@ -5,10 +5,11 @@ from pathlib import Path
 
 import pytest
 
-# build_systems 及其依赖（exe_builder / vendor_packer）使用同级扁平导入
+# build_systems 及其依赖（exe_builder）使用同级扁平导入
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from build_systems import BuildContext  # noqa: E402
+from logbus import Logger  # noqa: E402
 
 
 class StubDistView:
@@ -71,7 +72,7 @@ def make_ctx(tmp_path: Path):
             output_dir=output_dir,
             plugin_name="testplugin",
             dist_view=dist_view,
-            log=logs.append,
+            log=Logger(lambda text, level: logs.append(text)),
         )
         return ctx, logs
 
