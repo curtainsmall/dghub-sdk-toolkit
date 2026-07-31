@@ -1,4 +1,4 @@
-# Plugin Packer 使用指南
+# DGHub SDK Packer 使用指南
 
 图形化桌面工具 + 命令行界面，帮助开发者配置插件信息、打包并分发 DGHub 插件
 （产物 `manifest.json` 构建时自动生成）。GUI 与 CLI 共用同一构建内核，均以插件目录下的

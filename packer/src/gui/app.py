@@ -34,9 +34,9 @@ _TYPE_VALUES = {v: k for k, v in _TYPE_LABELS.items()}
 
 
 class App(ctk.CTk):
-    """DGHub Plugin Packer main window."""
+    """DGHub SDK Packer main window."""
 
-    TITLE = "DGHub Plugin Packer"
+    TITLE = "DGHub SDK Packer"
     WINDOW_SIZE = "1400x1000"
 
     def __init__(self) -> None:

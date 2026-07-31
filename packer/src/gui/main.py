@@ -1,4 +1,4 @@
-"""DGHub Plugin Packer — GUI 入口。
+"""DGHub SDK Packer — GUI 入口。
 
 用法：
     python -m gui.main            # 从 packer/src 运行

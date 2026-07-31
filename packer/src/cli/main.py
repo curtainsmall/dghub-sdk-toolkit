@@ -1,4 +1,4 @@
-"""DGHub Plugin Packer — CLI 入口（console）。
+"""DGHub SDK Packer — CLI 入口（console）。
 
 用法：
     python -m cli.main <子命令> ...        # 从 packer/src 运行

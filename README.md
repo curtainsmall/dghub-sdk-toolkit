@@ -61,7 +61,7 @@ uv run --project packer python packer/src/cli/main.py --help
 uv run --project packer python packer/build.py
 ```
 
-详细用法参见 [Plugin Packer 使用指南](docs/packer.md)。
+详细用法参见 [DGHub SDK Packer 使用指南](docs/packer.md)。
 
 ## Demo
 
