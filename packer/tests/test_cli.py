@@ -121,3 +121,28 @@ def test_cli_build_without_project_fails(tmp_path):
 
 def test_cli_apply_without_project_fails(tmp_path):
     assert dispatch(["apply", str(tmp_path)]) == 2
+
+
+def test_cli_global_flags_after_subcommand(tmp_path):
+    # 全局标志（--no-color / -v）后置于子命令应被接受，不触发 argparse 报错
+    plugin_dir = tmp_path / "gp"
+    plugin_dir.mkdir()
+    (plugin_dir / "main.js").write_text("x", encoding="utf-8")
+    assert dispatch(["init", str(plugin_dir), "--build-system", "generic"]) == 0
+    (plugin_dir / "packer-input.json").write_text(json.dumps({
+        "plugin": {"id": "gp-x", "name": "GP", "version": "1.0.0",
+                   "entry": "main.js"},
+        "build": {"system": "generic", "source_dir": "."},
+    }), encoding="utf-8")
+    assert dispatch(["apply", str(plugin_dir)]) == 0
+    out_dir = tmp_path / "out"
+    # 全局标志放在子命令及其参数之后
+    assert dispatch(["build", str(plugin_dir), "-o", str(out_dir),
+                     "--no-color", "-v"]) == 0
+    assert (out_dir / "gp.zip").is_file()
+
+
+def test_cli_verbose_after_subcommand_without_dir(tmp_path, monkeypatch):
+    # `build -v`（省略目录）不被 argparse 拒绝；dir 回退 "."，返回用法码 2（非崩溃）
+    monkeypatch.chdir(tmp_path)
+    assert dispatch(["build", "-v"]) == 2

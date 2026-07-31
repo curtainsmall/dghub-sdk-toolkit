@@ -18,9 +18,11 @@
   `--no-color`、`-v/--verbose`、`-q/--quiet`；`Ctrl+C` 终止子进程树
 - **Packer**：`packer-input.json`「输入清单」（纯 JSON）——无 GUI 地配置项目，
   按 GUI 输入语义回放落盘到 `.dghub-sdk/`（`apply` 要求项目已存在，不自动 init）
-- **构建产物**：`build_exe.py` 支持 `--gui` / `--cli` / `--both`（默认 both，兼容
-  `--version`），产出 GUI（`DGHubPluginPacker.exe`，windowed）与 CLI
-  （`DGHubPluginPackerCLI.exe`，console）两个独立 exe；Release 同时附带二者
+- **构建与分发**：`build.py`（取代 `build_exe.py`）一步完成「源码 → onedir → Inno Setup 安装器」；
+  GUI 与 CLI 共享一份 Python 运行时（onedir + `MERGE`，无每次启动解压 → 启动更快、去重）。
+  产出每用户安装器 `dghub-sdk-packer-setup.exe`：装到 `%LocalAppData%\dghub-sdk-packer`、
+  将安装目录加入用户 PATH（控制台命令 `dgpacker`）、建开始菜单「DGHub SDK Packer」（GUI）与卸载器。
+  exe：`dgpacker-gui.exe`（GUI）/ `dgpacker.exe`（CLI）。Release 附安装器
 
 ### 变更
 
@@ -30,6 +32,7 @@
 - **Packer（内部）**：从 `app` 抽出构建编排（`backend/build_runner`）、打包
   （`backend/packaging`）、全局状态（`backend/settings_store`）；去重共享组件
   （`_ToolTip` / 输入框边框复位 → `gui/widgets`，`_NO_WINDOW` → `backend/winflags`）
+- **分发方式变更**：从「下载单个 exe」改为「安装器」——Packer 现须安装后使用（不再提供便携 exe/zip）
 
 ## [0.3.0] - 2026-07-30
 

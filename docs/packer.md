@@ -4,16 +4,20 @@
 
 ---
 
-## 下载与运行
+## 下载与安装
 
 从 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases) 下载
-`DGHubPluginPacker.exe`，双击即可运行，无需安装。
+`dghub-sdk-packer-setup.exe`，双击安装（每用户安装，无需管理员）。安装后：
+
+- **GUI**：开始菜单「DGHub SDK Packer」
+- **CLI**：新开终端直接用 `dgpacker <命令>`（安装目录已加入 PATH）
 
 如需从源码运行（需要 [uv](https://docs.astral.sh/uv/)）：
 
 ```bash
 uv sync --project packer
-uv run --project packer python -m packer.src.main
+uv run --project packer python packer/src/gui/main.py     # GUI
+uv run --project packer python packer/src/cli/main.py --help   # CLI
 ```
 
 ---
@@ -113,8 +117,8 @@ GUI 与 CLI 共用同一构建内核，且都以插件目录下的 `.dghub-sdk/`
 源码运行：
 
 ```bash
-uv run --project packer python -m cli.main <命令> [目录] [选项]
-# 冻结后：DGHubPluginPackerCLI.exe <命令> [目录] [选项]（console，stdout 可见）
+uv run --project packer python packer/src/cli/main.py <命令> [目录] [选项]
+# 安装后：dgpacker <命令> [目录] [选项]（console，stdout 可见）
 ```
 
 ### 两种工作流
@@ -143,17 +147,17 @@ uv run --project packer python -m cli.main <命令> [目录] [选项]
 
 ---
 
-## 从源码构建 EXE
+## 从源码构建安装器
 
-将 Packer 自身打包为独立可执行文件（GUI 与 CLI 各一个）：
+将 Packer 打包为 Windows 安装器（一步完成「源码 → onedir → 安装器」）：
 
 ```bash
 uv sync --project packer
-uv run --project packer python packer/build_exe.py --both
+uv run --project packer python packer/build.py            # 可选 --version X.Y.Z
 ```
 
-- `--gui` / `--cli` / `--both`（未指定目标时默认 `--both`），可与 `--version X.Y.Z` 并存
-- 产物：`packer/bin/DGHubPluginPacker.exe`（GUI，windowed）与
-  `packer/bin/DGHubPluginPackerCLI.exe`（CLI，console）
+- GUI 与 CLI 共享一份 Python 运行时（onedir + PyInstaller `MERGE`，无每次启动解压 → 启动更快、去重）
+- 产物：`packer/installer/dghub-sdk-packer-setup.exe`（onedir 中间物在 `packer/bin/dghub-sdk-packer/`）
+- **前置**：本机需装 [Inno Setup 6](https://jrsoftware.org/isinfo.php)（`ISCC` 在 PATH 或默认安装目录）；若 `[Languages]` 用到简体中文，需 `ChineseSimplified.isl` 在 Inno 的 `Languages\` 目录
 
-> 依赖（含 PyInstaller）由 `packer/pyproject.toml` 声明，`uv sync` 会自动安装
+> 依赖（含 PyInstaller）由 `packer/pyproject.toml` 声明，`uv sync` 会自动安装；Inno Setup 需单独安装。

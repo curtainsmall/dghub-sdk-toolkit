@@ -45,7 +45,7 @@ with dghub_sdk.Agent() as agent:
 
 ### 下载
 
-从 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases) 下载 `DGHubPluginPacker.exe` 直接运行。
+从 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases) 下载 `dghub-sdk-packer-setup.exe` 安装（每用户，无需管理员）。安装后：GUI 在开始菜单「DGHub SDK Packer」，CLI 用控制台命令 `dgpacker`（已入 PATH）。
 
 ### 从源码运行
 
@@ -53,11 +53,12 @@ with dghub_sdk.Agent() as agent:
 # 安装依赖（需要 uv）
 uv sync --project packer
 
-# 运行
-uv run --project packer python -m packer.src.main
+# 运行 GUI / CLI
+uv run --project packer python packer/src/gui/main.py
+uv run --project packer python packer/src/cli/main.py --help
 
-# 打包为单文件 exe
-uv run --project packer python packer/build_exe.py
+# 构建 Windows 安装器（需 Inno Setup 6）
+uv run --project packer python packer/build.py
 ```
 
 详细用法参见 [Plugin Packer 使用指南](docs/packer.md)。

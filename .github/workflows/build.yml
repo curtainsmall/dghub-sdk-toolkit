@@ -56,20 +56,40 @@ jobs:
           uv sync
         working-directory: packer
 
-      - name: Build with PyInstaller
+      - name: Install Inno Setup
+        shell: pwsh
         run: |
-          uv run build_exe.py --both
+          choco install innosetup --no-progress --confirm
+          $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup*\ISCC.exe" |
+                  Select-Object -First 1 -ExpandProperty FullName
+          if (-not $iscc) { throw "ISCC.exe not found after Chocolatey install" }
+          $dir = Split-Path $iscc -Parent
+          echo "$dir" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Download Simplified Chinese language file
+        shell: pwsh
+        run: |
+          $langDir = "${env:ProgramFiles(x86)}\Inno Setup 6\Languages"
+          $file = "ChineseSimplified.isl"
+          $path = Join-Path $langDir $file
+          if (-not (Test-Path $path)) {
+            $url = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/$file"
+            curl.exe -L -o $path $url 2>$null
+            if (-not (Test-Path $path)) { Write-Warning "Failed to download $file" }
+          }
+
+      - name: Build installer (onedir + Inno Setup)
+        run: |
+          uv run build.py
         env:
           CI_VERSION_TAG: ${{ github.ref_name }}
         working-directory: packer
 
-      - name: Upload exe as workflow artifact
+      - name: Upload installer as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DGHubPluginPacker-${{ github.ref_name }}
-          path: |
-            packer/bin/DGHubPluginPacker.exe
-            packer/bin/DGHubPluginPackerCLI.exe
+          name: DGHubSDKPacker-${{ github.ref_name }}
+          path: packer/installer/dghub-sdk-packer-setup.exe
 
   build-sdk:
     needs: detect-changes
@@ -113,10 +133,10 @@ jobs:
       - name: Checkout (for CHANGELOG.md)
         uses: actions/checkout@v4
 
-      - name: Download Packer artifact
+      - name: Download Packer installer artifact
         uses: actions/download-artifact@v4
         with:
-          name: DGHubPluginPacker-${{ github.ref_name }}
+          name: DGHubSDKPacker-${{ github.ref_name }}
           path: release-files
 
       - name: Strip tag prefix

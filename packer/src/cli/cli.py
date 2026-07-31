@@ -99,8 +99,13 @@ def _make_ctx(pm: ProjectManager, project: dict, bs_id: str, logger: Logger,
     dist = CliDistView(pm, bs_id)
     plugin_dir = pm.plugin_dir
     source_dir = Path(dist.get_source_dir())
-    out = output_override or project.get("output_dir", "")
-    output_dir = Path(pm.to_absolute(out)) if out else plugin_dir / "output"
+    # 输出目录基准区分来源：-o 命令行参数相对 cwd（CLI 惯例）；
+    # project.json 的 output_dir 相对插件目录（可移植性约定）
+    if output_override:
+        output_dir = Path(output_override).resolve()
+    else:
+        out = project.get("output_dir", "")
+        output_dir = Path(pm.to_absolute(out)) if out else plugin_dir / "output"
     if pypi_override is not None:
         pypi = pypi_override
     else:
@@ -304,22 +309,34 @@ def cmd_export(args, logger: Logger) -> int:
 # argparse
 # ---------------------------------------------------------------------------
 
+def _global_parser() -> argparse.ArgumentParser:
+    """全局标志父 parser：供顶层与各子命令共用，使其前后置皆可。
+
+    用 ``argparse.SUPPRESS`` 作默认值，避免子 parser 的默认覆盖顶层已解析值。
+    """
+    g = argparse.ArgumentParser(add_help=False)
+    g.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS,
+                   help="禁用日志 ANSI 着色（重定向 / CI 友好）")
+    g.add_argument("-v", "--verbose", action="store_true",
+                   default=argparse.SUPPRESS, help="显示更详尽的日志（含 detail）")
+    g.add_argument("-q", "--quiet", action="store_true",
+                   default=argparse.SUPPRESS, help="仅显示警告 / 错误 / 结果")
+    return g
+
+
 def build_parser() -> argparse.ArgumentParser:
+    g = _global_parser()
     parser = argparse.ArgumentParser(
         prog="packer",
-        description="DGHub 插件打包工具（命令行）")
+        description="DGHub 插件打包工具（命令行）",
+        parents=[g])
+    # -V/--version 为「打印版本即退出」的元标志，仅顶层
     parser.add_argument("-V", "--version", action="version",
                         version=f"DGHub Packer {APP_VERSION}")
-    parser.add_argument("--no-color", action="store_true",
-                        help="禁用日志 ANSI 着色（重定向 / CI 友好）")
-    parser.add_argument("-v", "--verbose", action="store_true",
-                        help="显示更详尽的日志（含 detail）")
-    parser.add_argument("-q", "--quiet", action="store_true",
-                        help="仅显示警告 / 错误 / 结果")
 
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_build = sub.add_parser("build", help="构建插件（读 .dghub-sdk/）")
+    p_build = sub.add_parser("build", parents=[g], help="构建插件（读 .dghub-sdk/）")
     p_build.add_argument("dir", nargs="?", default=".", help="项目目录")
     p_build.add_argument("-o", "--output", help="覆盖输出目录")
     p_build.add_argument("--target", choices=["zip", "folder"],
@@ -327,11 +344,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_build.add_argument("--pypi-index", help="覆盖依赖 vendor 的 PyPI 镜像")
     p_build.set_defaults(func=cmd_build)
 
-    p_val = sub.add_parser("validate", help="仅校验不构建")
+    p_val = sub.add_parser("validate", parents=[g], help="仅校验不构建")
     p_val.add_argument("dir", nargs="?", default=".", help="项目目录")
     p_val.set_defaults(func=cmd_validate)
 
-    p_init = sub.add_parser("init", help="初始化 .dghub-sdk/（建 Packer 项目）")
+    p_init = sub.add_parser("init", parents=[g], help="初始化 .dghub-sdk/（建 Packer 项目）")
     p_init.add_argument("dir", nargs="?", default=".", help="项目目录")
     p_init.add_argument("--build-system", choices=["uv", "generic"],
                         help="显式指定构建系统（覆盖智能探测）")
@@ -339,7 +356,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help=".dghub-sdk/ 已存在时也重置为默认")
     p_init.set_defaults(func=cmd_init)
 
-    p_apply = sub.add_parser("apply",
+    p_apply = sub.add_parser("apply", parents=[g],
                              help="应用 packer-input.json 到 .dghub-sdk/")
     p_apply.add_argument("dir", nargs="?", default=".", help="项目目录")
     p_apply.add_argument("-f", "--file", help="输入文件路径（默认 <dir>/packer-input.json）")
@@ -347,7 +364,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="只打印将写入的改动，不落盘")
     p_apply.set_defaults(func=cmd_apply)
 
-    p_export = sub.add_parser("export",
+    p_export = sub.add_parser("export", parents=[g],
                               help="从 .dghub-sdk/ 导出 packer-input.json")
     p_export.add_argument("dir", nargs="?", default=".", help="项目目录")
     p_export.add_argument("-f", "--file", help="输出路径（默认 <dir>/packer-input.json）")
@@ -361,5 +378,8 @@ def build_parser() -> argparse.ArgumentParser:
 def dispatch(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    logger = make_logger(args.no_color, args.verbose, args.quiet)
+    # 全局标志用 SUPPRESS 默认，未提供时属性缺失 → getattr 回退
+    logger = make_logger(getattr(args, "no_color", False),
+                         getattr(args, "verbose", False),
+                         getattr(args, "quiet", False))
     return args.func(args, logger)

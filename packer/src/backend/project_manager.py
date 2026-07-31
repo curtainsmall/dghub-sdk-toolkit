@@ -75,7 +75,9 @@ class ProjectManager:
 
     def __init__(self, plugin_dir: str,
                  log: Optional[Logger] = None) -> None:
-        self._plugin_dir = Path(plugin_dir)
+        # resolve：CLI 可能传入 "." 等相对路径，未解析时 .name 为空串，
+        # 会导致产物名（如 {name}.exe / {name}.zip）为空
+        self._plugin_dir = Path(plugin_dir).resolve()
         self._root = self._plugin_dir / ".dghub-sdk"
         self._log = log
 
