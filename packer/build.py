@@ -42,26 +42,23 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _get_tag() -> str:
-    """获取当前版本 tag（CI 优先 CI_VERSION_TAG，本地回退 git describe）。"""
-    ci_tag = os.environ.get("CI_VERSION_TAG", "")
-    if ci_tag:
-        return ci_tag
-    try:
-        return subprocess.check_output(
-            ["git", "describe", "--tags", "--match", f"{TAG_PREFIX}*",
-             "--abbrev=0"],
-            text=True, stderr=subprocess.DEVNULL,
-        ).strip()
-    except Exception:
-        return ""
+    """CI 触发 tag（CI_VERSION_TAG，精确触发 tag）；本地无此环境变量则返回空串。
+
+    不从本地 git tag 猜版本——发布 tag 打在 main 的合并提交上、且对本地
+    dev 构建而言，报一个具体旧版本号（如 0.3.0）反而误导。本地无 --version
+    时由 `_resolve_version` 统一落到 "No Version"。
+    """
+    return os.environ.get("CI_VERSION_TAG", "")
 
 
 def _resolve_version(override: str = "") -> str:
-    """解析版本号（override 优先；tag v1.0.0 → 1.0.0；无则空串）。"""
+    """解析版本：--version 优先；否则 CI_VERSION_TAG（去 v 前缀）；本地无参 → "No Version"。"""
     if override:
         return override
     tag = _get_tag()
-    return tag[len(TAG_PREFIX):] if tag.startswith(TAG_PREFIX) else ""
+    if tag:
+        return tag[len(TAG_PREFIX):] if tag.startswith(TAG_PREFIX) else tag
+    return "No Version"
 
 
 def _write_version(version: str) -> None:
@@ -94,10 +91,10 @@ def _find_iscc() -> str:
 
 def main() -> int:
     args = _parse_args()
+    # --version 必须是合法 SemVer（本地无参时不走此路，落 "No Version"）
     if args.version and not _SEMVER_RE.match(args.version):
         print(f"Error: invalid SemVer version: {args.version}")
         return 1
-
     version = _resolve_version(args.version)
     _write_version(version)
     try:
