@@ -13,9 +13,11 @@ from typing import Any, Callable, Optional
 
 import customtkinter as ctk
 
-from build_systems import BUILD_SYSTEMS, evaluate_pattern
-from exe_builder import _NO_WINDOW, _get_python_exe
-from project_manager import ProjectManager
+from backend.build_systems import BUILD_SYSTEMS, evaluate_pattern
+from backend.exe_builder import _get_python_exe
+from backend.winflags import _NO_WINDOW
+from backend.project_manager import ProjectManager
+from gui.widgets import ToolTip, reset_entry_border
 
 # 目标位置显示名 ↔ 存储值
 _DEST_LABELS = {"root": "根目录", "vendor": "vendor/"}
@@ -27,34 +29,6 @@ _LABEL_W = 92
 # 使所有输入区右边界一致、选择按钮列对齐
 _SELECT_BTN_W = 90
 _RESET_SLOT_W = 33
-
-
-class _ToolTip:
-    """Lightweight hover tooltip for a widget."""
-
-    def __init__(self, widget: Any, text: str) -> None:
-        self._widget = widget
-        self._text = text
-        self._tip: Optional[Any] = None
-        widget.bind("<Enter>", self._show)
-        widget.bind("<Leave>", self._hide)
-
-    def _show(self, _event: Any = None) -> None:
-        if self._tip is not None:
-            return
-        import tkinter as tk
-        x = self._widget.winfo_rootx()
-        y = self._widget.winfo_rooty() + self._widget.winfo_height() + 4
-        self._tip = tk.Toplevel(self._widget)
-        self._tip.wm_overrideredirect(True)
-        self._tip.wm_geometry(f"+{x}+{y}")
-        tk.Label(self._tip, text=self._text, background="#333333",
-                 foreground="white", padx=6, pady=2).pack()
-
-    def _hide(self, _event: Any = None) -> None:
-        if self._tip is not None:
-            self._tip.destroy()
-            self._tip = None
 
 
 class DistributeTab(ctk.CTkFrame):
@@ -177,7 +151,7 @@ class DistributeTab(ctk.CTkFrame):
                                   fg_color="transparent",
                                   hover_color=("gray70", "gray40"),
                                   font=ctk.CTkFont(size=16))
-        _ToolTip(reset_btn, "恢复默认")
+        ToolTip(reset_btn, "恢复默认")
 
         self._src_rows[key] = {"frame": path_frame, "label": path_lbl,
                                "reset": reset_btn}
@@ -448,7 +422,7 @@ class DistributeTab(ctk.CTkFrame):
             exec_slot, text="↺", width=28, command=self._reset_exec_dir,
             fg_color="transparent", hover_color=("gray70", "gray40"),
             font=ctk.CTkFont(size=16))
-        _ToolTip(self._exec_reset_btn, "恢复默认")
+        ToolTip(self._exec_reset_btn, "恢复默认")
         self._refresh_exec_display()
 
         # 收集目录行（原始文件选取根：entry / 附加文件 / glob 均相对此目录）
@@ -941,6 +915,4 @@ class DistributeTab(ctk.CTkFrame):
     def clear_entry_error(self) -> None:
         """将入口输入框恢复为主题默认边框（清除错误红框，保留正常灰边）。"""
         for entry in (self._entry_entry, self._entry_generic_entry):
-            entry.configure(
-                border_width=ctk.ThemeManager.theme["CTkEntry"]["border_width"],
-                border_color=ctk.ThemeManager.theme["CTkEntry"]["border_color"])
+            reset_entry_border(entry)

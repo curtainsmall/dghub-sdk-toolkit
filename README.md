@@ -41,10 +41,11 @@ with dghub_sdk.Agent() as agent:
 - 插件信息编辑 — 可视化填写元信息与 `config_schema`，产物 `manifest.json` 构建时自动生成
 - 依赖管理 — 依赖由项目自身清单（`pyproject.toml`）声明，构建时安装到 `vendor/`
 - 发布 — 导出 `.zip` 或文件夹，Python 项目可选构建为独立 `.exe`
+- 命令行界面 — 面向脚本 / CI 的 `build` / `validate` / `init` / `apply` / `export`，与 GUI 共用内核（详见 [使用指南](docs/packer.md#命令行使用cli)）
 
 ### 下载
 
-从 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases) 下载 `DGHubPluginPacker.exe` 直接运行。
+从 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases) 下载 `dghub-sdk-packer-setup.exe` 安装（每用户，无需管理员）。安装后：GUI 在开始菜单「DGHub SDK Packer」，CLI 用控制台命令 `dgpacker`（已入 PATH）。
 
 ### 从源码运行
 
@@ -52,11 +53,12 @@ with dghub_sdk.Agent() as agent:
 # 安装依赖（需要 uv）
 uv sync --project packer
 
-# 运行
-uv run --project packer python -m packer.src.main
+# 运行 GUI / CLI
+uv run --project packer python packer/src/gui/main.py
+uv run --project packer python packer/src/cli/main.py --help
 
-# 打包为单文件 exe
-uv run --project packer python packer/build_exe.py
+# 构建 Windows 安装器（需 Inno Setup 6）
+uv run --project packer python packer/build.py
 ```
 
 详细用法参见 [Plugin Packer 使用指南](docs/packer.md)。

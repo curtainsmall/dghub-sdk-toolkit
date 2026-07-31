@@ -22,7 +22,8 @@
 
 # Re-ignore build outputs
 packer/bin/
-packer/src/_version.py
+packer/installer/
+packer/src/backend/_version.py
 sdk/**/dist/
 demo/**/vendor/
 demo/**/*.zip

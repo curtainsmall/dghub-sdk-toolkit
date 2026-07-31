@@ -8,8 +8,9 @@ from typing import Any, Callable, Optional
 
 import customtkinter as ctk
 
-from manifest_validator import VALID_FIELD_TYPES, validate_manifest
-from project_manager import ProjectManager
+from backend.manifest_validator import VALID_FIELD_TYPES, validate_manifest
+from backend.project_manager import ProjectManager
+from gui.widgets import reset_entry_border
 
 FIELD_TYPE_LABELS: dict[str, str] = {
     "bool": "开关 (bool)",
@@ -25,10 +26,8 @@ FIELD_TYPE_LABELS: dict[str, str] = {
 
 
 def _reset_entry_border(entry: ctk.CTkEntry) -> None:
-    """将输入框恢复为主题默认边框（清除错误红框，而非抹成无边框）。"""
-    entry.configure(
-        border_width=ctk.ThemeManager.theme["CTkEntry"]["border_width"],
-        border_color=ctk.ThemeManager.theme["CTkEntry"]["border_color"])
+    """将输入框恢复为主题默认边框（已移至 gui/widgets，此处保留兼容别名）。"""
+    reset_entry_border(entry)
 
 
 class ManifestTab(ctk.CTkFrame):

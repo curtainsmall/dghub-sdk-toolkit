@@ -28,7 +28,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-from logbus import Logger
+from backend.logbus import Logger
 
 # 当前支持的配置格式代数（仅破坏性变更时递增）
 _SUPPORTED_FORMAT = 1
@@ -75,9 +75,16 @@ class ProjectManager:
 
     def __init__(self, plugin_dir: str,
                  log: Optional[Logger] = None) -> None:
-        self._plugin_dir = Path(plugin_dir)
+        # resolve：CLI 可能传入 "." 等相对路径，未解析时 .name 为空串，
+        # 会导致产物名（如 {name}.exe / {name}.zip）为空
+        self._plugin_dir = Path(plugin_dir).resolve()
         self._root = self._plugin_dir / ".dghub-sdk"
         self._log = log
+
+    @property
+    def plugin_dir(self) -> Path:
+        """插件根目录（项目根锚点与回退基准）。"""
+        return self._plugin_dir
 
     def _note(self, msg: str, level: str = "info") -> None:
         if self._log:

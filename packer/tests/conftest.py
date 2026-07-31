@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 
-# build_systems 及其依赖（exe_builder）使用同级扁平导入
+# backend/gui/cli 为 packer/src 下的顶层包，测试按 backend.* 导入后端
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from build_systems import BuildContext  # noqa: E402
-from logbus import Logger  # noqa: E402
+from backend.build_systems import BuildContext  # noqa: E402
+from backend.logbus import Logger  # noqa: E402
 
 
 class StubDistView:

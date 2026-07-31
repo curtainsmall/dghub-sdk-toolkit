@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from build_systems import (
+from backend.build_systems import (
     BUILD_SYSTEMS,
     BuildError,
     GenericSupport,
@@ -115,7 +115,7 @@ def test_uv_build_steps_fails_on_missing_manifest_file(make_ctx):
 
 def test_uv_build_steps_uses_pypi_index_env(make_ctx, monkeypatch):
     """配置镜像源时，vendor 子进程应带 UV_DEFAULT_INDEX 环境变量。"""
-    import build_systems
+    import backend.build_systems as build_systems
 
     captured: dict = {}
 
@@ -139,7 +139,7 @@ def test_uv_build_steps_uses_pypi_index_env(make_ctx, monkeypatch):
 
 def test_uv_build_steps_no_index_env_by_default(make_ctx, monkeypatch):
     """未配置镜像源时，env 保持 None（继承父进程环境）。"""
-    import build_systems
+    import backend.build_systems as build_systems
 
     captured: dict = {}
 

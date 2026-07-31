@@ -13,7 +13,7 @@ import subprocess
 import threading
 from typing import Optional
 
-_NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+from backend.winflags import _NO_WINDOW
 
 
 class Canceller:

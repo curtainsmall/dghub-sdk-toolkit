@@ -7,6 +7,35 @@
 版本号为 toolkit 发布批次号，Packer 与 SDK 统一使用；SDK 仅在自身有变更
 的批次发布至 PyPI（版本跳号为预期行为）。
 
+## [0.4.0-beta] - 2026-07-31
+
+### 新增
+
+- **Packer**：新增命令行界面（CLI），面向脚本 / CI / 自动化场景，与 GUI 共用
+  同一构建内核、同以 `.dghub-sdk/` 为项目数据源。命令：`build`（读项目构建）、
+  `validate`（仅校验）、`init`（初始化项目，按 `pyproject.toml` 智能探测构建系统）、
+  `apply`（应用 `packer-input.json`）、`export`（导出）；全局 `-V/--version`、
+  `--no-color`、`-v/--verbose`、`-q/--quiet`；`Ctrl+C` 终止子进程树
+- **Packer**：`packer-input.json`「输入清单」（纯 JSON）——无 GUI 地配置项目，
+  按 GUI 输入语义回放落盘到 `.dghub-sdk/`（`apply` 要求项目已存在，不自动 init）；
+  `apply` 打印本次**实际更新**的字段（仅变化项；把字段重置为默认因异于原值同样计为变化）
+- **构建与分发**：`build.py`（取代 `build_exe.py`）一步完成「源码 → onedir → Inno Setup 安装器」；
+  GUI 与 CLI 共享一份 Python 运行时（onedir + `MERGE`，无每次启动解压 → 启动更快、去重）。
+  产出每用户安装器 `dghub-sdk-packer-setup.exe`：装到 `%LocalAppData%\dghub-sdk-packer`、
+  将安装目录加入用户 PATH（控制台命令 `dgpacker`）、建开始菜单「DGHub SDK Packer」（GUI）与卸载器。
+  exe：`dgpacker-gui.exe`（GUI）/ `dgpacker.exe`（CLI）。Release 附安装器
+
+### 变更
+
+- **Packer（内部）**：源码重构为 `backend` / `gui` / `cli` 三层——后端纯逻辑内核
+  （禁 import customtkinter）、GUI 前端、CLI 前端，依赖单向（前端 → 后端），
+  GUI/CLI 各有独立入口（`gui/main.py` / `cli/main.py`）各自打包为一个 exe
+- **Packer（内部）**：从 `app` 抽出构建编排（`backend/build_runner`）、打包
+  （`backend/packaging`）、全局状态（`backend/settings_store`）；去重共享组件
+  （`_ToolTip` / 输入框边框复位 → `gui/widgets`，`_NO_WINDOW` → `backend/winflags`）
+- **分发方式变更**：从「下载单个 exe」改为「安装器」——Packer 现须安装后使用（不再提供便携 exe/zip）
+- **构建版本解析**：`build.py` 版本取值优先级 `--version`（须 SemVer）> `CI_VERSION_TAG` > `"No Version"`；不再从本地 git tag 猜测（发布 tag 在 main 合并提交上、本地报旧版本号会误导），本地未指定版本的构建显示 `No Version`
+
 ## [0.3.0] - 2026-07-30
 
 ### 新增
@@ -122,6 +151,7 @@
 
 历史版本，详见 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases)。
 
+[0.4.0-beta]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.3.0...v0.4.0-beta
 [0.3.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.1.3...v0.2.0

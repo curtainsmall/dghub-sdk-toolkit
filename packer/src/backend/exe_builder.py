@@ -11,10 +11,9 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from logbus import Logger
-from build_control import Canceller
-
-_NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+from backend.logbus import Logger
+from backend.build_control import Canceller
+from backend.winflags import _NO_WINDOW
 
 
 def _get_python_exe() -> list[str]:

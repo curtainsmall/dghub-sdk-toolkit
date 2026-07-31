@@ -1,10 +1,7 @@
 """Main application window — cross-tab layout with top/bottom bars."""
 
 import datetime
-import json
-import os
 import threading
-import zipfile
 from pathlib import Path
 from tkinter import filedialog, messagebox
 from typing import Any, Optional
@@ -16,52 +13,24 @@ def _norm(p: str) -> str:
 
 import customtkinter as ctk
 
-from distribute_tab import DistributeTab
-from build_systems import (BUILD_SYSTEMS, BuildContext, BuildError,
-                           read_tool_dghub_entry)
-from log_tab import LogTab
-from logbus import Logger
-from build_control import Canceller
-from manifest_tab import ManifestTab
-from project_manager import (ProjectManager, project_exists,
-                             UnsupportedFormatError)
-from settings_tab import SettingsTab
-
-_STATE_DIR = Path.home() / ".dghub-sdk-packer"
-_STATE_DIR.mkdir(parents=True, exist_ok=True)
-_STATE_FILE = _STATE_DIR / "state.json"
+from gui.distribute_tab import DistributeTab
+from backend.build_systems import (BUILD_SYSTEMS, BuildContext, BuildError,
+                                   read_tool_dghub_entry)
+from backend.build_runner import run_build
+from backend.packaging import cleanup_intermediates
+from gui.log_tab import LogTab
+from backend.logbus import Logger
+from backend.build_control import Canceller
+from gui.manifest_tab import ManifestTab
+from backend.project_manager import (ProjectManager, project_exists,
+                                     UnsupportedFormatError)
+from gui.settings_tab import SettingsTab
+from gui.widgets import ToolTip
+from backend import settings_store
 
 # 构建系统下拉项 ↔ 存储值（由构建系统注册表生成）
 _TYPE_LABELS = {bs_id: bs.label for bs_id, bs in BUILD_SYSTEMS.items()}
 _TYPE_VALUES = {v: k for k, v in _TYPE_LABELS.items()}
-
-
-class _ToolTip:
-    """Lightweight hover tooltip for a widget."""
-
-    def __init__(self, widget: Any, text: str) -> None:
-        self._widget = widget
-        self._text = text
-        self._tip: Optional[Any] = None
-        widget.bind("<Enter>", self._show)
-        widget.bind("<Leave>", self._hide)
-
-    def _show(self, _event: Any = None) -> None:
-        if self._tip is not None:
-            return
-        import tkinter as tk
-        x = self._widget.winfo_rootx()
-        y = self._widget.winfo_rooty() + self._widget.winfo_height() + 4
-        self._tip = tk.Toplevel(self._widget)
-        self._tip.wm_overrideredirect(True)
-        self._tip.wm_geometry(f"+{x}+{y}")
-        tk.Label(self._tip, text=self._text, background="#333333",
-                 foreground="white", padx=6, pady=2).pack()
-
-    def _hide(self, _event: Any = None) -> None:
-        if self._tip is not None:
-            self._tip.destroy()
-            self._tip = None
 
 
 class App(ctk.CTk):
@@ -188,7 +157,7 @@ class App(ctk.CTk):
                         hover_color=("gray70", "gray40"),
                         font=ctk.CTkFont(size=16))
                 # Hidden by default; shown only when dir is manually set
-                _ToolTip(reset_btn, "恢复默认")
+                ToolTip(reset_btn, "恢复默认")
                 btns.append(reset_btn)
             return frame, lbl, btns
         
@@ -640,56 +609,20 @@ class App(ctk.CTk):
             ctx = self._make_build_context()
             ctx.output_dir.mkdir(parents=True, exist_ok=True)
             target = self._dist_view.get_target()
-
-            # Step 4: 系统特有构建步骤（uv/pip: 依赖 vendor + 可选 exe；
-            # generic: 可选 pre-build）
-            if not bs.build_steps(ctx):
-                self._build_success = False
-                return
-
-            # Step 5: generate manifest for output
             manifest_data = self._info_view._build_manifest()
-            manifest_data["entry"] = bs.manifest_entry(ctx)
-            manifest_data.pop("homepage", None)
-            manifest_json = json.dumps(manifest_data, ensure_ascii=False,
-                                       indent=2)
 
-            # Step 6: 收集产物清单（含存在性校验与 glob 求值，在
-            # pre-build 之后执行）并统一打包（zip 与 folder 结构一致）
+            # Step 4: 构建 + 打包（GUI/CLI 共用的后端编排）
             try:
-                out_files = bs.collect_output(ctx)
+                artifact = run_build(ctx, bs, manifest_data, target)
             except BuildError as be:
                 for msg in be.errors:
                     self._logger.error(msg)
                 self._highlight_tab("构建")
                 self._build_success = False
                 return
-            if target == "zip":
-                zip_path = ctx.output_dir / f"{ctx.plugin_name}.zip"
-                with zipfile.ZipFile(zip_path, "w",
-                                     zipfile.ZIP_DEFLATED) as zf:
-                    zf.writestr("manifest.json", manifest_json)
-                    for src, arc in out_files:
-                        zf.write(src, arc)
-                size_kb = zip_path.stat().st_size / 1024
-                self._logger.success(f"打包完成: {zip_path} ({size_kb:.1f} KB)")
-            elif target == "folder":
-                import shutil
-                folder_dir = ctx.output_dir / ctx.plugin_name
-                folder_dir.mkdir(parents=True, exist_ok=True)
-                (folder_dir / "manifest.json").write_text(
-                    manifest_json, encoding="utf-8")
-                for src, arc in out_files:
-                    dst = folder_dir / arc
-                    dst.parent.mkdir(parents=True, exist_ok=True)
-                    try:
-                        shutil.copy2(src, dst)
-                    except Exception as exc:
-                        self._logger.warning(f"复制文件失败: {exc}")
-                self._logger.success(f"文件夹已发布: {folder_dir}")
-
-            # 清理输出目录内的中间产物（vendor/cache/中间 exe）
-            self._cleanup_intermediates(ctx.output_dir, ctx.plugin_name)
+            if artifact is None:
+                self._build_success = False
+                return
 
         except Exception as exc:
             self._logger.error(f"构建失败: {exc}")
@@ -705,8 +638,7 @@ class App(ctk.CTk):
             if cancelled:
                 # 取消后清理已产生的中间产物（仅 output_dir，不动用户源目录）
                 if ctx is not None:
-                    self._cleanup_intermediates(ctx.output_dir,
-                                                ctx.plugin_name)
+                    cleanup_intermediates(ctx.output_dir, ctx.plugin_name)
                 self._logger.warning("构建已取消")
                 self._build_status.configure(text="⏹ 已取消",
                                              text_color=("gray50", "gray60"))
@@ -716,39 +648,13 @@ class App(ctk.CTk):
                 self._build_status.configure(text="❌ 构建失败", text_color="red")
             self._canceller = None
 
-    def _cleanup_intermediates(self, output_dir: Path, plugin_name: str) -> None:
-        """删除输出目录内的构建中间产物（vendor / cache / 中间 exe）。"""
-        import shutil
-        temp_vendor = output_dir / "vendor"
-        if temp_vendor.is_dir():
-            shutil.rmtree(temp_vendor, ignore_errors=True)
-        cache_dir = output_dir / "cache"
-        if cache_dir.is_dir():
-            shutil.rmtree(cache_dir, ignore_errors=True)
-        exe_file = output_dir / f"{plugin_name}.exe"
-        if exe_file.is_file():
-            try:
-                exe_file.unlink()
-            except OSError:
-                pass
-
     def _read_state(self) -> dict:
-        """读取全局状态文件（不存在或损坏返回空 dict）。"""
-        try:
-            if _STATE_FILE.is_file():
-                return json.loads(_STATE_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-        return {}
+        """读取全局状态（委托 backend.settings_store）。"""
+        return settings_store.read_state()
 
     def _save_state_key(self, key: str, value: Any) -> None:
-        """读-改-写更新全局状态文件的单个键（不覆盖其他键）。"""
-        try:
-            state = self._read_state()
-            state[key] = value
-            _STATE_FILE.write_text(json.dumps(state), encoding="utf-8")
-        except Exception:
-            pass
+        """更新全局状态的单个键（委托 backend.settings_store）。"""
+        settings_store.save_state_key(key, value)
 
     def _save_last_plugin_dir(self, d: str) -> None:
         self._save_state_key("last_plugin_dir", d)

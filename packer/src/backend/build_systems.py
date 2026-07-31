@@ -14,9 +14,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from exe_builder import build_plugin_exe, _find_sdk_path, _NO_WINDOW
-from logbus import Logger
-from build_control import Canceller
+from backend.exe_builder import build_plugin_exe, _find_sdk_path
+from backend.winflags import _NO_WINDOW
+from backend.logbus import Logger
+from backend.build_control import Canceller
 
 
 @dataclass
