@@ -41,6 +41,7 @@ with dghub_sdk.Agent() as agent:
 - 插件信息编辑 — 可视化填写元信息与 `config_schema`，产物 `manifest.json` 构建时自动生成
 - 依赖管理 — 依赖由项目自身清单（`pyproject.toml`）声明，构建时安装到 `vendor/`
 - 发布 — 导出 `.zip` 或文件夹，Python 项目可选构建为独立 `.exe`
+- 命令行界面 — 面向脚本 / CI 的 `build` / `validate` / `init` / `apply` / `export`，与 GUI 共用内核（详见 [使用指南](docs/packer.md#命令行使用cli)）
 
 ### 下载
 

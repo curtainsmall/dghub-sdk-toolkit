@@ -104,15 +104,56 @@ uv run --project packer python -m packer.src.main
 
 ---
 
+## 命令行使用（CLI）
+
+Packer 除 GUI 外提供命令行界面，面向脚本 / CI / 无终端偏好之外的自动化场景。
+GUI 与 CLI 共用同一构建内核，且都以插件目录下的 `.dghub-sdk/` 为项目数据源
+（类比 `.git/`，是「Packer 项目」的标志）。
+
+源码运行：
+
+```bash
+uv run --project packer python -m cli.main <命令> [目录] [选项]
+# 冻结后：DGHubPluginPackerCLI.exe <命令> [目录] [选项]（console，stdout 可见）
+```
+
+### 两种工作流
+
+- **GUI 配置 → CLI/CI 构建**：先用 GUI 配好（生成 `.dghub-sdk/`），此后无需改动即可
+  反复 `packer build`（CI 一行出包）。
+- **完全无 GUI**：`packer init` 建项目 → 写 `packer-input.json` → `packer apply` 落盘 →
+  `packer build`。`packer-input.json` 是可选的「输入清单」（纯 JSON，不支持注释），
+  按 GUI 输入语义回放应用到 `.dghub-sdk/`。
+
+### 命令
+
+| 命令 | 作用 |
+|---|---|
+| `build [目录]` | 读 `.dghub-sdk/` 构建；`-o/--output`、`--target zip\|folder`、`--pypi-index URL` |
+| `validate [目录]` | 仅校验插件信息与构建配置，不构建 |
+| `init [目录]` | 初始化 `.dghub-sdk/`；`--build-system uv\|generic`（默认按 `pyproject.toml` 智能探测）、`--force` |
+| `apply [目录]` | 应用 `packer-input.json` 到 `.dghub-sdk/`；`-f/--file`、`--dry-run`；**要求项目已存在，不自动 init** |
+| `export [目录]` | 从 `.dghub-sdk/` 导出 `packer-input.json`；`-f/--file`、`--force` |
+
+全局选项：`-V/--version`、`--no-color`（禁用着色）、`-v/--verbose`、`-q/--quiet`。
+退出码：0 成功；2 用法错误（如缺 `.dghub-sdk/`）；3 校验失败；4 构建失败；130 取消。
+
+> CLI 不加载 GUI 依赖，可在无显示环境（CI）运行；`Ctrl+C` 会终止正在运行的
+> 命令（含子进程树）。
+
+---
+
 ## 从源码构建 EXE
 
-将 Plugin Packer 自身打包为独立可执行文件：
+将 Packer 自身打包为独立可执行文件（GUI 与 CLI 各一个）：
 
 ```bash
 uv sync --project packer
-uv run --project packer python packer/build_exe.py
+uv run --project packer python packer/build_exe.py --both
 ```
 
-产物输出到 `packer/bin/DGHubPluginPacker.exe`。
+- `--gui` / `--cli` / `--both`（未指定目标时默认 `--both`），可与 `--version X.Y.Z` 并存
+- 产物：`packer/bin/DGHubPluginPacker.exe`（GUI，windowed）与
+  `packer/bin/DGHubPluginPackerCLI.exe`（CLI，console）
 
 > 依赖（含 PyInstaller）由 `packer/pyproject.toml` 声明，`uv sync` 会自动安装

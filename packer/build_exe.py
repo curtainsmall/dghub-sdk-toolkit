@@ -1,8 +1,9 @@
-"""Build DGHub Plugin Packer as a single-file exe.
+"""Build DGHub Plugin Packer executables (GUI and/or CLI).
 
 Usage:
-    python build_exe.py [--version X.Y.Z]
-    # or with uv: uv sync && uv run build_exe.py
+    python build_exe.py [--version X.Y.Z] [--gui | --cli | --both]
+    # 未指定目标时默认 --both；可与 --version 并存
+    # 或 uv: uv run build_exe.py --version 0.4.0 --both
 """
 
 import argparse
@@ -16,28 +17,42 @@ ROOT = Path(__file__).resolve().parent
 
 TAG_PREFIX = "v"
 
-_VERSION_PATH = ROOT / "src" / "_version.py"
+# _version.py 归属后端（GUI 关于页与 CLI --version 共用），仅构建期生成
+_VERSION_PATH = ROOT / "src" / "backend" / "_version.py"
 
 _SEMVER_RE = re.compile(
     r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$"
 )
 
+# 各层需显式声明的 hidden-import（包结构下仍列出以降低漏收风险）
+_BACKEND_MODULES = [
+    "backend.build_systems", "backend.build_control", "backend.exe_builder",
+    "backend.logbus", "backend.manifest_validator", "backend.project_manager",
+    "backend.packaging", "backend.build_runner", "backend.settings_store",
+    "backend.winflags", "backend.input_apply", "backend._version",
+]
+_GUI_MODULES = [
+    "gui.app", "gui.manifest_tab", "gui.distribute_tab", "gui.settings_tab",
+    "gui.log_tab", "gui.widgets",
+]
+_CLI_MODULES = ["cli.cli", "cli.cli_view"]
+
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build Packer exe")
+    parser = argparse.ArgumentParser(description="Build Packer exe(s)")
     parser.add_argument(
         "--version", default="", metavar="X.Y.Z",
         help="强制指定构建版本号（SemVer），跳过 git tag 读取",
     )
+    grp = parser.add_argument_group("构建目标（未指定则默认 --both）")
+    grp.add_argument("--gui", action="store_true", help="构建 GUI exe")
+    grp.add_argument("--cli", action="store_true", help="构建 CLI exe")
+    grp.add_argument("--both", action="store_true", help="构建 GUI + CLI（默认）")
     return parser.parse_args()
 
 
 def _get_tag() -> str:
-    """获取当前版本 tag。
-
-    CI 环境优先读 CI_VERSION_TAG（精确触发 tag），
-    本地回退到 git describe --match "v*"。
-    """
+    """获取当前版本 tag（CI 优先 CI_VERSION_TAG，本地回退 git describe）。"""
     ci_tag = os.environ.get("CI_VERSION_TAG", "")
     if ci_tag:
         return ci_tag
@@ -52,11 +67,7 @@ def _get_tag() -> str:
 
 
 def _write_version(override: str = "") -> None:
-    """写入版本号到 _version.py。
-
-    优先使用 override（--version 参数）；否则从 tag 提取：
-    tag 格式: v1.0.0  →  写入 1.0.0，无 tag 时写入空字符串。
-    """
+    """写入版本号到 backend/_version.py（tag v1.0.0 → 1.0.0）。"""
     if override:
         version = override
     else:
@@ -79,56 +90,63 @@ def main() -> int:
     if args.version and not _SEMVER_RE.match(args.version):
         print(f"Error: invalid SemVer version: {args.version}")
         return 1
+    build_gui = args.gui or args.both or not (args.gui or args.cli)
+    build_cli = args.cli or args.both or not (args.gui or args.cli)
+
     _write_version(args.version)
     try:
-        return _build()
+        if build_gui:
+            rc = _build_target("gui")
+            if rc != 0:
+                return rc
+        if build_cli:
+            rc = _build_target("cli")
+            if rc != 0:
+                return rc
     finally:
         _reset_version()
+        _clean(str(ROOT / "cache"))
+    return 0
 
 
-def _build() -> int:
-    print("Building DGHub Plugin Packer with PyInstaller...")
-
+def _build_target(target: str) -> int:
     src_dir = ROOT / "src"
     sdk_dir = ROOT.parent / "sdk" / "python"
+    add_data = f"{sdk_dir / 'dghub_sdk'}{os.pathsep}dghub_sdk"
 
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--onefile",
-        "--windowed",
-        "--name", "DGHubPluginPacker",
         "--distpath", str(ROOT / "bin"),
         "--workpath", str(ROOT / "cache" / "build_tmp"),
         "--specpath", str(ROOT / "cache"),
         "--paths", str(src_dir),
         "--paths", str(sdk_dir),
-        "--hidden-import", "app",
-        "--hidden-import", "manifest_tab",
-        "--hidden-import", "distribute_tab",
-        "--hidden-import", "settings_tab",
-        "--hidden-import", "log_tab",
-        "--hidden-import", "logbus",
-        "--hidden-import", "project_manager",
-        "--hidden-import", "_version",
-        "--hidden-import", "manifest_validator",
-        "--hidden-import", "exe_builder",
-        "--add-data", f"{sdk_dir / 'dghub_sdk'}{os.pathsep}dghub_sdk",
-        str(src_dir / "main.py"),
+        "--add-data", add_data,
     ]
+    for mod in _BACKEND_MODULES:
+        cmd += ["--hidden-import", mod]
 
+    if target == "gui":
+        name = "DGHubPluginPacker"
+        cmd += ["--windowed", "--name", name]
+        for mod in _GUI_MODULES:
+            cmd += ["--hidden-import", mod]
+        cmd.append(str(src_dir / "gui" / "main.py"))
+    else:  # cli
+        name = "DGHubPluginPackerCLI"
+        cmd += ["--name", name, "--console",
+                "--exclude-module", "customtkinter"]
+        for mod in _CLI_MODULES:
+            cmd += ["--hidden-import", mod]
+        cmd.append(str(src_dir / "cli" / "main.py"))
+
+    print(f"Building {name} with PyInstaller...")
     result = subprocess.run(cmd, cwd=ROOT)
-
-    if result.returncode == 0:
-        print()
-        print("Success! Exe created: bin/DGHubPluginPacker.exe")
-        print()
-        print("Cleaning up build artifacts...")
-        _clean(str(ROOT / "cache"))
-    else:
-        print()
-        print(f"Build failed with error code {result.returncode}")
+    if result.returncode != 0:
+        print(f"\nBuild failed ({name}) with error code {result.returncode}")
         return result.returncode
-
+    print(f"Success! Exe created: bin/{name}.exe")
     return 0
 
 

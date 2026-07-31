@@ -58,7 +58,7 @@ jobs:
 
       - name: Build with PyInstaller
         run: |
-          uv run build_exe.py
+          uv run build_exe.py --both
         env:
           CI_VERSION_TAG: ${{ github.ref_name }}
         working-directory: packer
@@ -67,7 +67,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: DGHubPluginPacker-${{ github.ref_name }}
-          path: packer/bin/DGHubPluginPacker.exe
+          path: |
+            packer/bin/DGHubPluginPacker.exe
+            packer/bin/DGHubPluginPackerCLI.exe
 
   build-sdk:
     needs: detect-changes

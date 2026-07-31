@@ -7,6 +7,30 @@
 版本号为 toolkit 发布批次号，Packer 与 SDK 统一使用；SDK 仅在自身有变更
 的批次发布至 PyPI（版本跳号为预期行为）。
 
+## [0.4.0] - 2026-07-31
+
+### 新增
+
+- **Packer**：新增命令行界面（CLI），面向脚本 / CI / 自动化场景，与 GUI 共用
+  同一构建内核、同以 `.dghub-sdk/` 为项目数据源。命令：`build`（读项目构建）、
+  `validate`（仅校验）、`init`（初始化项目，按 `pyproject.toml` 智能探测构建系统）、
+  `apply`（应用 `packer-input.json`）、`export`（导出）；全局 `-V/--version`、
+  `--no-color`、`-v/--verbose`、`-q/--quiet`；`Ctrl+C` 终止子进程树
+- **Packer**：`packer-input.json`「输入清单」（纯 JSON）——无 GUI 地配置项目，
+  按 GUI 输入语义回放落盘到 `.dghub-sdk/`（`apply` 要求项目已存在，不自动 init）
+- **构建产物**：`build_exe.py` 支持 `--gui` / `--cli` / `--both`（默认 both，兼容
+  `--version`），产出 GUI（`DGHubPluginPacker.exe`，windowed）与 CLI
+  （`DGHubPluginPackerCLI.exe`，console）两个独立 exe；Release 同时附带二者
+
+### 变更
+
+- **Packer（内部）**：源码重构为 `backend` / `gui` / `cli` 三层——后端纯逻辑内核
+  （禁 import customtkinter）、GUI 前端、CLI 前端，依赖单向（前端 → 后端），
+  GUI/CLI 各有独立入口（`gui/main.py` / `cli/main.py`）各自打包为一个 exe
+- **Packer（内部）**：从 `app` 抽出构建编排（`backend/build_runner`）、打包
+  （`backend/packaging`）、全局状态（`backend/settings_store`）；去重共享组件
+  （`_ToolTip` / 输入框边框复位 → `gui/widgets`，`_NO_WINDOW` → `backend/winflags`）
+
 ## [0.3.0] - 2026-07-30
 
 ### 新增
@@ -122,6 +146,7 @@
 
 历史版本，详见 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases)。
 
+[0.4.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.1.3...v0.2.0
