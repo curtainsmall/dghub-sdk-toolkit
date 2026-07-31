@@ -75,6 +75,38 @@ def test_apply_input_maps_plugin_and_build(tmp_path):
     assert pm.read_project()["target"] == "folder"
 
 
+def test_apply_input_reports_applied_fields(tmp_path):
+    pm = _init_generic(tmp_path)
+    applied, notices = apply_input(pm, {
+        "plugin": {"id": "a.b", "name": "AB", "entry": "main.js"},
+        "build": {"system": "generic", "source_dir": "out"},
+    })
+    # 已应用字段被逐条汇报，供 CLI 打印
+    assert any(a.startswith("plugin.id") for a in applied)
+    assert any(a.startswith("plugin.name") for a in applied)
+    assert any(a.startswith("build.source_dir") for a in applied)
+    assert any(a.startswith("entry") for a in applied)
+
+
+def test_apply_input_only_reports_changed_on_reapply(tmp_path):
+    pm = _init_generic(tmp_path)
+    entries = {"plugin": {"id": "a-b", "name": "AB"},
+               "build": {"system": "generic", "source_dir": "out"}}
+    applied1, _ = apply_input(pm, entries)
+    assert applied1                      # 首次相对默认有变化
+    applied2, _ = apply_input(pm, entries)
+    assert applied2 == []                # 再次应用同值 → 无变化，不汇报
+
+
+def test_apply_input_reports_reset_to_default(tmp_path):
+    pm = _init_generic(tmp_path)
+    apply_input(pm, {"build": {"system": "generic", "source_dir": "out"}})
+    # 把 source_dir 改回默认空串——异于原值 "out"，仍算变化并汇报
+    applied, _ = apply_input(pm, {"build": {"system": "generic",
+                                            "source_dir": ""}})
+    assert any(a.startswith("build.source_dir") for a in applied)
+
+
 def test_apply_input_uv_autofills_entry_from_pyproject(tmp_path):
     (tmp_path / "pyproject.toml").write_text(
         "[tool.dghub]\nentry = \"src/plugin.py\"\n", encoding="utf-8")

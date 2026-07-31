@@ -251,7 +251,11 @@ def cmd_apply(args, logger: Logger) -> int:
         return EXIT_OK
 
     pm = ProjectManager(plugin_dir, log=logger)
-    for notice in apply_input(pm, entries):
+    applied, notices = apply_input(pm, entries)
+    logger.info(f"已更新 {len(applied)} 个字段:")
+    for line in applied:
+        logger.info(f"  {line}")
+    for notice in notices:
         logger.warning(notice)
     logger.success(f"已应用输入清单到 .dghub-sdk/: {input_file}")
     return EXIT_OK
