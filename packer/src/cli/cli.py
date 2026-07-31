@@ -336,7 +336,7 @@ def build_parser() -> argparse.ArgumentParser:
         parents=[g])
     # -V/--version 为「打印版本即退出」的元标志，仅顶层
     parser.add_argument("-V", "--version", action="version",
-                        version=f"DGHub Packer {APP_VERSION}")
+                        version=f"DGHub SDK Packer {APP_VERSION}")
 
     sub = parser.add_subparsers(dest="command", required=True)
 

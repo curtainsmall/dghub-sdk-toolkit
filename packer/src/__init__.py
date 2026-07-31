@@ -1,1 +1,1 @@
-"""DGHub Plugin Packer — GUI tool for creating DGHub plugin packages."""
+"""DGHub SDK Packer — build tool (GUI + CLI) for creating DGHub plugin packages."""
