@@ -17,7 +17,8 @@
   `apply`（应用 `packer-input.json`）、`export`（导出）；全局 `-V/--version`、
   `--no-color`、`-v/--verbose`、`-q/--quiet`；`Ctrl+C` 终止子进程树
 - **Packer**：`packer-input.json`「输入清单」（纯 JSON）——无 GUI 地配置项目，
-  按 GUI 输入语义回放落盘到 `.dghub-sdk/`（`apply` 要求项目已存在，不自动 init）
+  按 GUI 输入语义回放落盘到 `.dghub-sdk/`（`apply` 要求项目已存在，不自动 init）；
+  `apply` 打印本次**实际更新**的字段（仅变化项；把字段重置为默认因异于原值同样计为变化）
 - **构建与分发**：`build.py`（取代 `build_exe.py`）一步完成「源码 → onedir → Inno Setup 安装器」；
   GUI 与 CLI 共享一份 Python 运行时（onedir + `MERGE`，无每次启动解压 → 启动更快、去重）。
   产出每用户安装器 `dghub-sdk-packer-setup.exe`：装到 `%LocalAppData%\dghub-sdk-packer`、
@@ -33,6 +34,7 @@
   （`backend/packaging`）、全局状态（`backend/settings_store`）；去重共享组件
   （`_ToolTip` / 输入框边框复位 → `gui/widgets`，`_NO_WINDOW` → `backend/winflags`）
 - **分发方式变更**：从「下载单个 exe」改为「安装器」——Packer 现须安装后使用（不再提供便携 exe/zip）
+- **构建版本解析**：`build.py` 版本取值优先级 `--version`（须 SemVer）> `CI_VERSION_TAG` > `"No Version"`；不再从本地 git tag 猜测（发布 tag 在 main 合并提交上、本地报旧版本号会误导），本地未指定版本的构建显示 `No Version`
 
 ## [0.3.0] - 2026-07-30
 

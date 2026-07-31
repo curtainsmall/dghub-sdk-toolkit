@@ -1,6 +1,8 @@
 # Plugin Packer 使用指南
 
-图形化桌面工具，帮助开发者配置插件信息、打包并分发 DGHub 插件（产物 `manifest.json` 构建时自动生成）。
+图形化桌面工具 + 命令行界面，帮助开发者配置插件信息、打包并分发 DGHub 插件
+（产物 `manifest.json` 构建时自动生成）。GUI 与 CLI 共用同一构建内核，均以插件目录下的
+`.dghub-sdk/` 为项目数据源（类比 `.git/`，是「Packer 项目」的标志）。
 
 ---
 
@@ -22,7 +24,9 @@ uv run --project packer python packer/src/cli/main.py --help   # CLI
 
 ---
 
-## 工作流概览
+## GUI 使用
+
+### 工作流概览
 
 ```
 选择插件目录 → 选择构建系统 → 填写插件信息 → 配置构建内容 → 构建
@@ -35,10 +39,6 @@ uv run --project packer python packer/src/cli/main.py --help   # CLI
 3. **填写插件信息** — 在信息标签页填写元信息与配置 schema，产物 `manifest.json` 构建时自动生成
 4. **配置构建内容** — 在构建标签页指定依赖清单或收集目录、入口、附加文件、发布目标
 5. **构建** — 导出 `.zip` / 文件夹，Python 系统可选构建为独立 `.exe`
-
----
-
-## 各标签页简述
 
 ### 信息
 
@@ -108,13 +108,10 @@ uv run --project packer python packer/src/cli/main.py --help   # CLI
 
 ---
 
-## 命令行使用（CLI）
+## CLI 使用
 
-Packer 除 GUI 外提供命令行界面，面向脚本 / CI / 无终端偏好之外的自动化场景。
-GUI 与 CLI 共用同一构建内核，且都以插件目录下的 `.dghub-sdk/` 为项目数据源
-（类比 `.git/`，是「Packer 项目」的标志）。
-
-源码运行：
+面向脚本 / CI / 自动化场景被调用（不是双击运行）。安装后 `dgpacker` 已入 PATH；
+也可从源码运行：
 
 ```bash
 uv run --project packer python packer/src/cli/main.py <命令> [目录] [选项]
@@ -136,14 +133,38 @@ uv run --project packer python packer/src/cli/main.py <命令> [目录] [选项]
 | `build [目录]` | 读 `.dghub-sdk/` 构建；`-o/--output`、`--target zip\|folder`、`--pypi-index URL` |
 | `validate [目录]` | 仅校验插件信息与构建配置，不构建 |
 | `init [目录]` | 初始化 `.dghub-sdk/`；`--build-system uv\|generic`（默认按 `pyproject.toml` 智能探测）、`--force` |
-| `apply [目录]` | 应用 `packer-input.json` 到 `.dghub-sdk/`；`-f/--file`、`--dry-run`；**要求项目已存在，不自动 init** |
+| `apply [目录]` | 应用 `packer-input.json` 到 `.dghub-sdk/`，并打印本次更新的字段（仅变化项）；`-f/--file`、`--dry-run`；**要求项目已存在，不自动 init** |
 | `export [目录]` | 从 `.dghub-sdk/` 导出 `packer-input.json`；`-f/--file`、`--force` |
 
 全局选项：`-V/--version`、`--no-color`（禁用着色）、`-v/--verbose`、`-q/--quiet`。
 退出码：0 成功；2 用法错误（如缺 `.dghub-sdk/`）；3 校验失败；4 构建失败；130 取消。
+退出码为应用层约定、跨平台一致（由程序主动返回）；130 沿用 Unix Ctrl+C 惯例值，Windows 上同样由程序返回而非 OS 推导。
 
 > CLI 不加载 GUI 依赖，可在无显示环境（CI）运行；`Ctrl+C` 会终止正在运行的
 > 命令（含子进程树）。
+
+### packer-input.json（输入清单）
+
+**部分输入**：只写你想控制的字段，未写的键 `apply` 不碰、保持当前值（新项目即各自默认）。纯 JSON，不支持注释。
+
+- **保持默认** → 省略该键
+- **重置为默认** → 写成默认值（如 generic 的 `source_dir: ""`、`target: "zip"`）；因异于原值，`apply` 会记为一次变化并打印
+- `apply` 只打印**实际变化**的字段；同内容再次 `apply` 输出 0 个字段
+
+字段结构（均可部分提供）：
+
+```json
+{
+  "plugin": { "id": "", "name": "", "version": "", "entry": "", "capabilities": {} },
+  "build":  { "system": "uv|generic", "target": "zip|folder",
+              "manifest": "pyproject.toml", "build_exe": true, "include_sdk": true,
+              "source_dir": "", "pre_build": "", "exec_dir": "", "files": [] },
+  "config_schema": {}
+}
+```
+
+> `plugin.entry` 落入当前构建系统命名空间；`build.*` 按 `system` 取用对应字段
+> （`manifest`/`build_exe`/`include_sdk` 属 uv，`source_dir`/`pre_build`/`exec_dir`/`files` 属 generic）。
 
 ---
 

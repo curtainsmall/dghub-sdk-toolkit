@@ -28,12 +28,12 @@ try:
 except ImportError:
     APP_VERSION = "dev"
 
-# 退出码
+# 退出码（应用层约定，跨平台一致；由程序主动返回，不依赖 OS 信号推导）
 EXIT_OK = 0
-EXIT_USAGE = 2
-EXIT_VALIDATE = 3
-EXIT_BUILD = 4
-EXIT_CANCELLED = 130
+EXIT_USAGE = 2          # 用法/前置错误（对齐 argparse 的退出码）
+EXIT_VALIDATE = 3       # 校验失败
+EXIT_BUILD = 4          # 构建失败
+EXIT_CANCELLED = 130    # 取消（沿用 Unix Ctrl+C 惯例值；Windows 上同为本程序主动返回）
 
 # 着色级别 → ANSI 前景色（仅 error/warning/success 着色）
 _ANSI = {"error": "\033[31m", "warning": "\033[33m", "success": "\033[32m"}
