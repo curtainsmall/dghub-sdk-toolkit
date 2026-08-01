@@ -1,31 +1,27 @@
 {
   "id": "tetris",
   "name": "tetris",
-  "version": "0.1.0",
+  "version": "1",
   "author": "",
   "description": "",
   "sdk": "1",
   "config_schema": [
     {
-      "section": "Control",
+      "section": "control",
       "fields": [
         {
           "key": "switch",
           "type": "bool",
-          "label": "开关",
+          "label": "switch",
           "default": false
         },
         {
-          "key": "1",
-          "type": "duration",
-          "label": "1",
-          "description": "1"
+          "key": "delta_pct",
+          "type": "percent",
+          "label": "delta_pct",
+          "default": 20
         }
       ]
-    },
-    {
-      "section": "5",
-      "fields": []
     }
   ]
 }

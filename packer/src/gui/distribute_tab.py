@@ -41,6 +41,7 @@ class DistributeTab(ctk.CTkFrame):
                  on_select_source: Optional[Callable[[], None]] = None,
                  on_reset_source: Optional[Callable[[], None]] = None,
                  on_fill_builder: Optional[Callable[[], None]] = None,
+                 on_error_cleared: Optional[Callable[[], None]] = None,
                  **kwargs: Any) -> None:
         super().__init__(master, **kwargs)
         self._pm: Optional[ProjectManager] = None
@@ -51,7 +52,10 @@ class DistributeTab(ctk.CTkFrame):
         self._on_select_source = on_select_source
         self._on_reset_source = on_reset_source
         self._on_fill_builder = on_fill_builder
+        self._on_error_cleared = on_error_cleared
         self._controls: list[ctk.CTkBaseClass] = []
+        self._error_rels: set[str] = set()  # 校验失败的条目相对路径
+        self._area_error: str = ""          # 区域级错误（如缺少入口）
 
         self._no_zip_var = ctk.BooleanVar(value=False)
 
@@ -123,12 +127,13 @@ class DistributeTab(ctk.CTkFrame):
                       padx=(5, 10), pady=(16, 5))
         self._controls.extend([file_btn, dir_btn, rule_btn, fill_btn])
 
-        # 添加提示（如项目根外文件被跳过），短暂显示
+        # 添加提示（如项目根外文件被跳过），有内容才显示
         self._add_hint_lbl = ctk.CTkLabel(
             left, text="", font=ctk.CTkFont(size=11),
             text_color="#FF4444", anchor="w")
         self._add_hint_lbl.grid(row=3, column=1, columnspan=3, sticky="w",
                                 padx=5)
+        self._add_hint_lbl.grid_remove()
 
         # 规则输入行（默认隐藏）
         self._rule_input = ctk.CTkFrame(left, fg_color="transparent")
@@ -155,11 +160,19 @@ class DistributeTab(ctk.CTkFrame):
         left.grid_rowconfigure(5, weight=1)
         self._controls.append(self._item_list)
 
+        # 区域级错误提示（如打包内容为空 / 缺少入口）
+        self._area_err_lbl = ctk.CTkLabel(
+            left, text="", font=ctk.CTkFont(size=11),
+            text_color="#FF4444", anchor="w")
+        self._area_err_lbl.grid(row=6, column=1, columnspan=3, sticky="w",
+                                padx=5)
+        self._area_err_lbl.grid_remove()
+
         # ---- 右栏：发布选项 + 预览 ----
         right = ctk.CTkFrame(self)
         right.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=10)
         right.grid_columnconfigure(0, weight=1)
-        right.grid_rowconfigure(2, weight=1)
+        right.grid_rowconfigure(3, weight=1)  # 弹性空间给预览 Textbox
 
         ctk.CTkLabel(right, text="发布选项",
                      font=ctk.CTkFont(size=14, weight="bold")).grid(
@@ -175,7 +188,7 @@ class DistributeTab(ctk.CTkFrame):
                      font=ctk.CTkFont(size=14, weight="bold")).grid(
             row=2, column=0, sticky="nw", padx=10, pady=(10, 5))
         self._preview = ctk.CTkTextbox(right, wrap="word",
-                                       font=("Consolas", 11),
+                                       font=("Consolas", 12),
                                        state="disabled")
         self._preview.grid(row=3, column=0, sticky="nsew", padx=10,
                            pady=(0, 10))
@@ -233,6 +246,7 @@ class DistributeTab(ctk.CTkFrame):
                 skipped += 1
         if skipped:
             self._show_add_hint(f"已跳过项目根外的 {skipped} 个文件")
+        self.clear_errors()  # 内容已变，清除旧错误高亮
         self._refresh_item_list()
         self._refresh_preview()
 
@@ -253,6 +267,7 @@ class DistributeTab(ctk.CTkFrame):
             self._show_add_hint("所选目录必须在项目根内")
             return
         b.add_dir(rel)
+        self.clear_errors()  # 内容已变，清除旧错误高亮
         self._refresh_item_list()
         self._refresh_preview()
 
@@ -265,10 +280,14 @@ class DistributeTab(ctk.CTkFrame):
             return None
 
     def _show_add_hint(self, msg: str) -> None:
-        """显示添加提示，3 秒后自动清除。"""
+        """显示添加提示，3 秒后自动清除（无内容不占位）。"""
         self._add_hint_lbl.configure(text=msg)
+        self._add_hint_lbl.grid()
         try:
-            self.after(3000, lambda: self._add_hint_lbl.configure(text=""))
+            self.after(
+                3000,
+                lambda: (self._add_hint_lbl.configure(text=""),
+                         self._add_hint_lbl.grid_remove()))
         except Exception:
             pass
 
@@ -286,11 +305,13 @@ class DistributeTab(ctk.CTkFrame):
             b = self._builder()
             if b is not None:
                 b.add_rule(pattern)
+                self.clear_errors()  # 内容已变，清除旧错误高亮
                 self._refresh_item_list()
                 self._refresh_preview()
         self._hide_rule_input()
 
     def _fill_builder_clicked(self) -> None:
+        self.clear_errors()  # 内容可能变化，先清旧错误高亮
         if self._on_fill_builder:
             self._on_fill_builder()
 
@@ -316,8 +337,10 @@ class DistributeTab(ctk.CTkFrame):
                 fg_color=leave_color,
                 corner_radius=6)
             row.pack(fill="x", padx=2, pady=2)
+            if rel in self._error_rels:
+                row.configure(border_width=2, border_color="#FF4444")
             inner = ctk.CTkFrame(row, fg_color="transparent")
-            inner.pack(fill="x", padx=8, pady=4)
+            inner.pack(fill="x", padx=8, pady=3)  # pady 3：字体放大后行高保持
 
             # hover 高亮（递归绑定非按钮子控件，✕ 保留自身 hover）
 
@@ -329,8 +352,11 @@ class DistributeTab(ctk.CTkFrame):
                              fg_color=kbg, text_color=kfg,
                              corner_radius=4).pack(side="left")
             display = rel if kind != "dir" else rel.rstrip("/\\") + "\\"
+            is_error = rel in self._error_rels
             ctk.CTkLabel(inner, text=display, anchor="w",
-                         font=ctk.CTkFont(family="Consolas", size=11)
+                         font=ctk.CTkFont(family="Consolas", size=13,
+                                          weight="bold"),
+                         text_color=("#FF4444" if is_error else None)
                          ).pack(side="left", fill="x", expand=True,
                                 padx=(8, 6))
             # 标签徽章：位于文件名右侧（仍左对齐区域）
@@ -393,6 +419,13 @@ class DistributeTab(ctk.CTkFrame):
                              font=ctk.CTkFont(size=10), text_color="gray",
                              anchor="w").pack(fill="x", padx=10, pady=(0, 3))
 
+        # 区域级错误：打包内容容器红框 + 红色提示
+        if self._area_error:
+            self._item_list.configure(border_width=2,
+                                      border_color="#FF4444")
+        else:
+            self._item_list.configure(border_width=0)
+
     def _edit_item(self, idx: int) -> None:
         """双击条目：详情对话框（完整路径 + 重选 + 标签下拉）并应用。"""
         b = self._builder()
@@ -415,6 +448,7 @@ class DistributeTab(ctk.CTkFrame):
                         b.set_tags(i, [t for t in item.get("tags", [])
                                        if t != "entry"])
             b.set_tags(idx, new_tags)
+        self.clear_errors()  # 内容已变，清除旧错误高亮
         self._refresh_item_list()
         self._refresh_preview()
 
@@ -536,6 +570,7 @@ class DistributeTab(ctk.CTkFrame):
         b = self._builder()
         if b is not None:
             b.remove_item(idx)
+            self.clear_errors()  # 内容已变，清除旧错误高亮
             self._refresh_item_list()
             self._refresh_preview()
 
@@ -560,6 +595,9 @@ class DistributeTab(ctk.CTkFrame):
             self._pm = pm
         self._plugin_dir = d
         self._set_enabled(True)
+        self._error_rels = set()  # 新项目清除旧错误高亮
+        self._area_error = ""
+        self._area_err_lbl.grid_remove()
         if self._pm:
             self._loading = True
             try:
@@ -584,6 +622,27 @@ class DistributeTab(ctk.CTkFrame):
     # ------------------------------------------------------------------
     # accessors（供 app.py / 预览）
     # ------------------------------------------------------------------
+
+    def mark_errors(self, rels: set[str], area_msg: str = "") -> None:
+        """标记校验错误：条目级（红框红字）+ 区域级（容器红框 + 提示）。"""
+        self._error_rels = set(rels)
+        self._area_error = area_msg
+        if self._area_error:
+            self._area_err_lbl.configure(text=self._area_error)
+            self._area_err_lbl.grid()
+        else:
+            self._area_err_lbl.grid_remove()
+        self._refresh_item_list()
+
+    def clear_errors(self) -> None:
+        """清除条目与区域错误高亮（校验通过/重新校验前调用）。"""
+        if self._error_rels or self._area_error:
+            self._error_rels = set()
+            self._area_error = ""
+            self._area_err_lbl.grid_remove()
+            self._refresh_item_list()
+            if self._on_error_cleared:
+                self._on_error_cleared()  # 级联清除 tab 标题高亮
 
     def set_source_dir(self, d: str) -> None:
         self._source_dir = d

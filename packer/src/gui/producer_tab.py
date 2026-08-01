@@ -122,7 +122,7 @@ class ProducerTab(ctk.CTkFrame):
         self._controls.append(self._include_sdk_cb)
 
         self._pyinstaller_hint = ctk.CTkLabel(
-            self._py_frame, text="", font=ctk.CTkFont(size=11),
+            self._py_frame, text="", font=ctk.CTkFont(size=12),
             text_color="gray", anchor="w")
         self._pyinstaller_hint.grid(row=2, column=1, sticky="w", padx=5)
 
@@ -162,6 +162,8 @@ class ProducerTab(ctk.CTkFrame):
             command=self._reset_compile_dir, fg_color="transparent",
             hover_color=("gray70", "gray40"), font=ctk.CTkFont(size=16))
         self._exec_reset_btn.grid(row=1, column=3, padx=(2, 0), pady=(8, 0))
+        # 重置按钮列固定宽度：隐藏时布局不移动
+        self._cmd_frame.grid_columnconfigure(3, minsize=34)
         ToolTip(self._exec_reset_btn, "恢复默认")
         self._controls.extend([self._exec_pick_btn, self._exec_reset_btn])
 
@@ -259,9 +261,11 @@ class ProducerTab(ctk.CTkFrame):
         if self._compile_dir:
             text = Path(self._compile_dir).as_posix()
             color = ("gray10", "gray90")
+            self._exec_reset_btn.grid()  # 非默认才显示重置
         else:
             text = "项目根（默认）"
             color = ("gray60", "gray60")
+            self._exec_reset_btn.grid_remove()
         self._compile_dir_lbl.configure(text=text, text_color=color)
 
     # ------------------------------------------------------------------
@@ -285,7 +289,7 @@ class ProducerTab(ctk.CTkFrame):
             ok = False
         text = ("PyInstaller installed" if ok
                 else "PyInstaller required")
-        color = ("#2E7D32" if ok else "#DAA520")
+        color = ("#2E7D32" if ok else "#FF4444")
         try:
             self.after(0, lambda: self._pyinstaller_hint.configure(
                 text=text, text_color=color))

@@ -1,7 +1,7 @@
 {
+  "format_version": 2,
   "compile_system": "python",
   "source_dir": "",
-  "entry": "",
   "compile": "",
   "compile_dir": "",
   "manifest": "pyproject.toml",
@@ -10,6 +10,5 @@
     "files": [],
     "no_zip": false,
     "output_dir": ""
-  },
-  "format_version": 2
+  }
 }

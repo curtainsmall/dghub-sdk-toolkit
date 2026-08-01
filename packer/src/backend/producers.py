@@ -7,7 +7,8 @@ GUI 与管线不内置任何语言知识。
 
 抽象契约（Producer 九项能力）：身份、设置字段、启用、清单识别、
 探测、预检、校验、推导、执行。编译不推断 Builder（deduce 只是建议）、
-不读顶层 entry 之外的信息、不持久化、不接触 GUI。
+编译入口（[tool.dghub].entry）由 Python 编译从清单现读、不持久化、
+不接触 GUI。
 """
 
 import os
@@ -32,7 +33,6 @@ class ProducerContext:
     output_dir: Path
     plugin_name: str
     cfg: dict[str, Any]          # 编译设置字段（compile_system 相关字段）
-    entry: str                   # 顶层 entry（阶段 1 输入）
     log: Logger
     pypi_index: str = ""
     canceller: Optional[Canceller] = None
@@ -98,7 +98,7 @@ class Producer:
         """工具可用性预检，返回 (可用, 标注文案)。"""
         return True, ""
 
-    def validate(self, cfg: dict[str, Any], entry: str,
+    def validate(self, cfg: dict[str, Any],
                  source_dir: Path) -> list[str]:
         """静态校验编译设置，返回错误消息列表（空 = 通过）。"""
         errors: list[str] = []
@@ -191,18 +191,14 @@ class PythonProducer(Producer):
             name.startswith("requirements") and name.endswith(".txt"))
 
     def probe(self, plugin_dir: Path) -> Optional[dict[str, Any]]:
-        """探测 pyproject.toml → 建议 manifest / entry / include_sdk。"""
+        """探测 pyproject.toml → 建议 manifest / include_sdk。"""
         pyproject = plugin_dir / "pyproject.toml"
         if not pyproject.is_file():
             return None
-        suggest: dict[str, Any] = {
+        return {
             "manifest": "pyproject.toml",
             "include_sdk": True,
         }
-        entry = read_tool_dghub_entry(pyproject)
-        if entry:
-            suggest["entry"] = entry
-        return suggest
 
     def check_available(self) -> tuple[bool, str]:
         try:
@@ -215,16 +211,21 @@ class PythonProducer(Producer):
             pass
         return False, "未检测到 uv，请 pip install uv"
 
-    def validate(self, cfg: dict[str, Any], entry: str,
+    def validate(self, cfg: dict[str, Any],
                  source_dir: Path) -> list[str]:
-        errors = super().validate(cfg, entry, source_dir)
+        errors = super().validate(cfg, source_dir)
         manifest = cfg.get("manifest", "")
         if manifest and not self.is_known_manifest(Path(manifest).name):
             errors.append(f"无法识别的依赖清单: {Path(manifest).name}"
                           "（支持 pyproject.toml / setup.py / setup.cfg / "
                           "requirements*.txt）")
+        # entry 是 Python 编译专属输入（pyproject [tool.dghub].entry），
+        # 由本编译系统从清单现读，不入 project.json
+        entry = read_tool_dghub_entry(Path(source_dir) / manifest) \
+            if manifest else ""
         if not entry:
-            errors.append("入口文件不能为空")
+            errors.append("pyproject.toml 缺少 [tool.dghub].entry"
+                          "（Python 编译入口）")
         elif not entry.lower().endswith(".py"):
             errors.append(f"Python 编译的入口必须是 .py 文件: {entry}，"
                           "如为已构建产物请将编译设为「自定义命令」")
@@ -269,6 +270,11 @@ class PythonProducer(Producer):
         ctx.log.info("依赖打包完成")
 
         # 2) PyInstaller onedir 打包（依赖 + 项目根散装模块进 exe）
+        entry = read_tool_dghub_entry(manifest_path)
+        if not entry:
+            ctx.log.error("pyproject.toml 缺少 [tool.dghub].entry"
+                          "（Python 编译入口）")
+            return False
         ctx.log.info("构建 exe...")
         ok = build_plugin_exe(
             plugin_dir=str(ctx.plugin_dir),
@@ -276,7 +282,7 @@ class PythonProducer(Producer):
             include_dghub_sdk=bool(ctx.cfg.get("include_sdk", True)),
             logger=ctx.log,
             output_dir=str(ctx.output_dir),
-            entry=ctx.entry,
+            entry=entry,
             dep_dir=str(deps_dir),
             canceller=ctx.canceller,
         )

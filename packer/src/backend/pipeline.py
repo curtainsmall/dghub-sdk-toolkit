@@ -32,7 +32,6 @@ class BuildContext:
     output_dir: Path
     plugin_name: str
     producer_id: str            # ""（无）/ "python" / "command"
-    entry: str                   # 顶层 entry（阶段 1 输入）
     builder: Builder
     log: Logger
     pm: Optional[ProjectManager] = None
@@ -43,13 +42,11 @@ class BuildContext:
 
 
 def validate(ctx: BuildContext) -> list[str]:
-    """静态校验：顶层 entry、编译必要字段、Builder 必要条目。"""
+    """静态校验：编译必要字段、Builder 必要条目（entry 由编译系统自持）。"""
     errors: list[str] = []
-    if not ctx.entry:
-        errors.append("入口文件不能为空")
     proc = get_producer(ctx.producer_id)
     if proc is not None:
-        errors += proc.validate(ctx.producer_cfg, ctx.entry, ctx.source_dir)
+        errors += proc.validate(ctx.producer_cfg, ctx.source_dir)
     errors += ctx.builder.entry_errors(ctx.source_dir)
     return errors
 
@@ -57,7 +54,7 @@ def validate(ctx: BuildContext) -> list[str]:
 def fill_builder(ctx: BuildContext) -> Optional[list[str]]:
     """「从编译填充」：probe + deduce 串联，只填空。
 
-    将建议落盘（编译设置字段 / 顶层 entry / Builder 条目），
+    将建议落盘（编译设置字段 / Builder 条目），
     返回已应用的描述列表；无编译返回 None（调用方提示）。
     """
     applied: list[str] = []
@@ -108,7 +105,6 @@ def run_build(ctx: BuildContext, manifest_data: dict[str, Any]) -> Optional[Path
             output_dir=ctx.output_dir,
             plugin_name=ctx.plugin_name,
             cfg=ctx.producer_cfg,
-            entry=ctx.entry,
             log=ctx.log,
             pypi_index=ctx.pypi_index,
             canceller=ctx.canceller,
@@ -130,8 +126,11 @@ def run_build(ctx: BuildContext, manifest_data: dict[str, Any]) -> Optional[Path
             ctx.log.error(f"未找到打包产物: {prod}")
             return None
 
-    # Builder 条目（arc 保留相对路径）
-    out_files += ctx.builder.resolve(ctx.source_dir)
+    # Builder 条目（arc 保留相对路径）；无实际编译输入时入口缺失不豁免
+    out_files += ctx.builder.resolve(
+        ctx.source_dir,
+        entry_exempt=bool(ctx.producer_cfg.get("compile")
+                          or ctx.producer_cfg.get("manifest")))
 
     # manifest：entry = entry 标签条目的 arc（validate 已保证恰好一个）
     entry_item = ctx.builder.entry_item()

@@ -6,7 +6,6 @@ project.json 为唯一配置文件（format_version 2，顶层平铺 + builder �
       "format_version": 2,
       "compile_system": "python",      # 编译选择：""（无）/ "python" / "command"
       "source_dir": "",           # 项目根/收集根（空 = 插件目录）
-      "entry": "src/main.py",     # 阶段 1 输入（编译消费）
       "compile": "",            # CommandProducer 设置（compile_system="command" 时必填）
       "compile_dir": "",             # CommandProducer 执行目录（空 = 项目根）
       "manifest": "",             # PythonProducer 设置（compile_system="python" 时必填）
@@ -21,8 +20,10 @@ project.json 为唯一配置文件（format_version 2，顶层平铺 + builder �
 - 路径（manifest / source_dir / compile_dir / output_dir）存相对插件目录的路径，跨盘符时回退绝对路径
 - 未知键在读-改-写时保留，不丢数据
 - 旧格式（format_version 1，build_systems 命名空间）执行破坏性迁移：
-  字段归位（entry 取非空者优先、producer 按 manifest/compile 推断、extra_files 去 dest 入
+  字段归位（producer 按 manifest/compile 推断、extra_files 去 dest 入
   builder.files、target 映射 no_zip），并删除旧 deps.json（manifest.json 不受影响）
+- 编译入口（entry）为 Python 编译专属输入，由 PythonProducer 从
+  pyproject.toml 的 [tool.dghub].entry 现读，不入 project.json
 """
 
 import json
@@ -48,7 +49,6 @@ _MANIFEST_DEFAULTS: dict[str, Any] = {
 _PROJECT_DEFAULTS: dict[str, Any] = {
     "compile_system": "",
     "source_dir": "",
-    "entry": "",
     "compile": "",
     "compile_dir": "",
     "manifest": "",
@@ -150,7 +150,8 @@ class ProjectManager:
         path = self._root / name
         if path.is_file():
             try:
-                return json.loads(path.read_text(encoding="utf-8"))
+                # utf-8-sig：容忍 Windows 编辑器写入的 BOM
+                return json.loads(path.read_text(encoding="utf-8-sig"))
             except (json.JSONDecodeError, OSError):
                 pass
         return None
@@ -220,7 +221,7 @@ class ProjectManager:
         data = dict(_PROJECT_DEFAULTS)
         data.update({
             "format_version": _SUPPORTED_FORMAT,
-            "entry": (uv.get("entry") or gen.get("entry") or ""),
+            # v1 entry 弃用：编译入口由 PythonProducer 从 pyproject 现读
             "source_dir": gen.get("source_dir", ""),
             "compile": gen.get("pre_build", ""),        # v1 旧键 pre_build
             "compile_dir": gen.get("exec_dir", ""),     # v1 旧键 exec_dir
@@ -274,7 +275,7 @@ class ProjectManager:
     # ------------------------------------------------------------------
 
     def get_field(self, key: str) -> Any:
-        """读顶层字段（compile_system / entry / manifest / include_sdk ...）。"""
+        """读顶层字段（compile_system / manifest / include_sdk ...）。"""
         return self.read_project().get(key, _PROJECT_DEFAULTS.get(key))
 
     def set_field(self, key: str, value: Any) -> None:

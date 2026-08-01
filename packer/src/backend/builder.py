@@ -155,8 +155,13 @@ class Builder:
     # 收集（构建时调用）
     # ------------------------------------------------------------------
 
-    def resolve(self, source_dir: Path) -> list[tuple[Path, str]]:
+    def resolve(self, source_dir: Path,
+                entry_exempt: bool = True) -> list[tuple[Path, str]]:
         """条目 → [(源文件, 包内相对路径)]。
+
+        ``entry_exempt=True``（有编译时）：入口文件可能由编译阶段产出，
+        缺失豁免，由管线收集后兜底校验；``False``（无编译）时入口
+        必须真实存在，缺失报「打包内容文件不存在」。
 
         arc 保留相对项目根的路径（子目录结构不丢失）；同名 arc 去重
         （先到先得，entry 条目与规则求值结果因此自动去重）；
@@ -177,7 +182,7 @@ class Builder:
                 rel = item["path"]
                 src = source_dir / rel
                 if not src.is_file():
-                    if "entry" in item.get("tags", []):
+                    if entry_exempt and "entry" in item.get("tags", []):
                         # 入口文件可能由编译阶段产出（如 <插件名>.exe 在
                         # 处理器产物树中）；缺失与否由管线收集后兜底校验
                         continue

@@ -104,7 +104,7 @@ class SettingsTab(ctk.CTkFrame):
 
         ctk.CTkLabel(theme_frame, text="外观模式:").grid(
             row=1, column=0, sticky="w", padx=(10, 5), pady=10)
-        theme_menu = ctk.CTkComboBox(
+        theme_menu = ctk.CTkOptionMenu(
             theme_frame, values=["system", "light", "dark"],
             command=ctk.set_appearance_mode)
         theme_menu.grid(row=1, column=1, sticky="w", padx=5, pady=10)
@@ -121,9 +121,9 @@ class SettingsTab(ctk.CTkFrame):
 
         ctk.CTkLabel(build_frame, text="PyPI 镜像源:").grid(
             row=1, column=0, sticky="w", padx=(10, 5), pady=(0, 4))
-        self._pypi_menu = ctk.CTkComboBox(
+        self._pypi_menu = ctk.CTkOptionMenu(
             build_frame, values=list(PYPI_INDEX_PRESETS), width=220,
-            state="readonly", command=self._pypi_changed)
+            command=self._pypi_changed)
         self._pypi_menu.grid(row=1, column=1, sticky="w", padx=5, pady=(0, 4))
         self._pypi_menu.set(next(iter(PYPI_INDEX_PRESETS)))
 

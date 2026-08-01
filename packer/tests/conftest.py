@@ -40,7 +40,6 @@ def make_ctx(tmp_path: Path):
 
     def _make(pm: ProjectManager, builder: Builder,
               plugin_dir: Path, producer_id: str = "",
-              entry: str = "",
               producer_cfg: dict | None = None,
               pypi_index: str = "",
               source_dir: Path | None = None) -> tuple[BuildContext, list[str]]:
@@ -55,7 +54,6 @@ def make_ctx(tmp_path: Path):
             output_dir=output_dir,
             plugin_name=plugin_dir.name,
             producer_id=producer_id,
-            entry=entry,
             builder=builder,
             log=Logger(lambda text, level: logs.append(text)),
             pm=pm,

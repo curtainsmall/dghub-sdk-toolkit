@@ -59,7 +59,7 @@ def test_migration_v1(make_project, tmp_path):
     project = pm.read_project()
     assert project["format_version"] == 2
     assert project["compile_system"] == "python"      # manifest 非空 → python
-    assert project["entry"] == "src/main.py"
+    assert "entry" not in project      # v1 entry 弃用（Python 编译从 pyproject 现读）
     assert project["manifest"] == "pyproject.toml"
     assert project["include_sdk"] is True
     assert project["builder"]["no_zip"] is True  # target=folder → no_zip
@@ -203,7 +203,7 @@ def test_python_producer_probe(tmp_path):
         "[tool.dghub]\nentry='src/main.py'\n")
     py = get_producer("python")
     assert py.probe(root) == {"manifest": "pyproject.toml",
-                              "entry": "src/main.py", "include_sdk": True}
+                              "include_sdk": True}
     # 无 pyproject → None
     assert py.probe(tmp_path / "empty") is None
 
@@ -228,16 +228,23 @@ def test_python_producer_manifest_known():
 def test_python_producer_validate(make_project):
     pm, _, plugin_dir = make_project()
     py = get_producer("python")
-    cfg = {"manifest": "pyproject.toml", "include_sdk": True}
     # 缺 manifest → 错误
-    assert py.validate({}, "main.py", plugin_dir)
+    assert py.validate({}, plugin_dir)
     # 不可识别清单 → 错误
-    assert py.validate({"manifest": "package.json"}, "main.py", plugin_dir)
+    assert py.validate({"manifest": "package.json"}, plugin_dir)
+    # pyproject 缺 [tool.dghub].entry → 错误
+    cfg = {"manifest": "pyproject.toml", "include_sdk": True}
+    assert any("[tool.dghub].entry" in e
+               for e in py.validate(cfg, plugin_dir))
     # 非 .py 入口 → 错误
-    assert py.validate(cfg, "app.exe", plugin_dir)
+    (plugin_dir / "pyproject.toml").write_text(
+        "[tool.dghub]\nentry='app.exe'\n")
+    assert any(".py" in e for e in py.validate(cfg, plugin_dir))
     # 通过（入口存在性由 resolve 兜底）
+    (plugin_dir / "pyproject.toml").write_text(
+        "[tool.dghub]\nentry='main.py'\n")
     (plugin_dir / "main.py").write_text("x")
-    assert py.validate(cfg, "main.py", plugin_dir) == []
+    assert py.validate(cfg, plugin_dir) == []
 
 
 def test_producer_registry():
@@ -254,24 +261,21 @@ def test_producer_registry():
 def test_validate_required(make_project, make_ctx):
     pm, b, plugin_dir = make_project()
     ctx, _ = make_ctx(pm, b, plugin_dir, producer_id="python",
-                      entry="main.py",
                       producer_cfg={"manifest": "", "include_sdk": True})
     errors = validate(ctx)
     # 编译必要字段（manifest 缺失）+ Builder 必要条目（entry 缺失）
     assert any("依赖清单" in e for e in errors)
     assert any("入口" in e for e in errors)
-    # entry 为空
-    ctx2, _ = make_ctx(pm, b, plugin_dir, entry="")
-    assert any("入口文件不能为空" in e for e in validate(ctx2))
+    # 无编译：仅 Builder 必要条目校验
+    ctx2, _ = make_ctx(pm, b, plugin_dir)
+    assert any("入口" in e for e in validate(ctx2))
 
 
 def test_fill_builder_only_fills_empty(make_project, make_ctx):
     pm, b, plugin_dir = make_project()
     pm.set_field("compile_system", "python")
     pm.set_field("manifest", "pyproject.toml")
-    pm.set_field("entry", "src/main.py")
     ctx, _ = make_ctx(pm, b, plugin_dir, producer_id="python",
-                      entry="src/main.py",
                       producer_cfg={"manifest": "pyproject.toml",
                                      "include_sdk": True})
     applied = fill_builder(ctx)
@@ -293,8 +297,7 @@ def test_run_build_no_producer(make_project, make_ctx):
     (plugin_dir / "assets" / "data.json").write_text("{}")
     b.add_file("main.py", ["entry"])
     b.add_dir("assets")
-    ctx, _ = make_ctx(pm, b, plugin_dir, entry="main.py",
-                      source_dir=plugin_dir)
+    ctx, _ = make_ctx(pm, b, plugin_dir, source_dir=plugin_dir)
     artifact = run_build(ctx, {"id": "t", "name": "t"})
     assert artifact is not None
     # folder 模式（no_zip=False 默认 → zip）
@@ -314,8 +317,7 @@ def test_run_build_no_zip_folder(make_project, make_ctx):
     (plugin_dir / "main.exe").write_text("exe")
     b.add_file("main.exe", ["entry"])
     b.set_no_zip(True)
-    ctx, _ = make_ctx(pm, b, plugin_dir, entry="main.exe",
-                      source_dir=plugin_dir)
+    ctx, _ = make_ctx(pm, b, plugin_dir, source_dir=plugin_dir)
     artifact = run_build(ctx, {"id": "t", "name": "t"})
     assert artifact is not None and artifact.is_dir()
     assert (artifact / "manifest.json").is_file()
@@ -325,13 +327,26 @@ def test_run_build_no_zip_folder(make_project, make_ctx):
 
 
 def test_run_build_missing_entry_file(make_project, make_ctx):
-    """entry 条目缺失（无编译产出也无源文件）→ 收集后兜底失败。"""
+    """无编译 + entry 条目缺失 → 收集阶段 BuildError（不再豁免）。"""
     pm, b, plugin_dir = make_project()
     b.add_file("missing.exe", ["entry"])
-    ctx, logs = make_ctx(pm, b, plugin_dir, entry="main.py",
-                         source_dir=plugin_dir)
-    assert run_build(ctx, {"id": "t", "name": "t"}) is None
-    assert any("入口产物缺失" in m for m in logs)
+    ctx, _ = make_ctx(pm, b, plugin_dir, source_dir=plugin_dir)
+    with pytest.raises(BuildError) as exc_info:
+        run_build(ctx, {"id": "t", "name": "t"})
+    assert any("不存在" in m for m in exc_info.value.errors)
+
+
+def test_resolve_entry_exempt(make_project, make_ctx):
+    """resolve：有编译输入时 entry 缺失豁免；无编译时不豁免。"""
+    pm, b, plugin_dir = make_project()
+    b.add_file("missing.exe", ["entry"])
+    # 有编译输入（manifest）→ 豁免
+    out = b.resolve(plugin_dir, entry_exempt=True)
+    assert out == []
+    # 无编译 → 报「打包内容文件不存在」
+    with pytest.raises(BuildError) as exc_info:
+        b.resolve(plugin_dir, entry_exempt=False)
+    assert any("missing.exe" in m for m in exc_info.value.errors)
 
 
 def test_run_build_command_producer(make_project, make_ctx, tmp_path):
@@ -349,7 +364,7 @@ def test_run_build_command_producer(make_project, make_ctx, tmp_path):
     (plugin_dir / "out" / "plugin.exe").write_bytes(b"exe")
     b.add_file("out/plugin.exe", ["entry"])
     ctx, _ = make_ctx(pm, b, plugin_dir, producer_id="command",
-                      entry="main.py", source_dir=plugin_dir,
+                      source_dir=plugin_dir,
                       producer_cfg={"compile": f"python {script.as_posix()}",
                                      "compile_dir": ""})
     # 执行真实命令（source_dir 为 cwd）

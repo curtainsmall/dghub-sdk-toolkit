@@ -84,7 +84,8 @@ class App(ctk.CTk):
             self._dist_tab,
             on_select_source=self._select_source_dir,
             on_reset_source=self._reset_source_dir,
-            on_fill_builder=self._fill_builder_clicked)
+            on_fill_builder=self._fill_builder_clicked,
+            on_error_cleared=self._on_dist_errors_cleared)
         self._dist_view.pack(fill="both", expand=True)
 
         self._settings_view = SettingsTab(
@@ -312,6 +313,7 @@ class App(ctk.CTk):
             text_color=("gray60", "gray60") if self._output_auto
             else ("gray10", "gray90"))
         # 视图内目录行红框复位
+        self._dist_view.clear_errors()
         self._push_source_display()
         # 信息页必填字段红框复位（恢复默认灰边）
         self._info_view.reset_field_borders()
@@ -369,6 +371,10 @@ class App(ctk.CTk):
         """信息页字段被编辑（来自 ManifestTab 回调）→ 级联清除高亮。"""
         self._clear_field_error("信息", self._info_view._fields.get(key))
 
+    def _on_dist_errors_cleared(self) -> None:
+        """构建页错误高亮被清除（内容修改）→ 级联清除 tab 标题高亮。"""
+        self._clear_tab_highlight("构建")
+
     def _validate_info_tab(self) -> bool:
         """Validate 信息 tab fields，一次性检测所有必填项。Returns True if valid."""
         manifest = self._info_view._build_manifest()
@@ -390,8 +396,45 @@ class App(ctk.CTk):
         self._dist_view.save_settings()
         ctx = self._make_build_context()
         ok = True
+        # 先清除过时的条目错误高亮，再收集新错误
+        self._dist_view.clear_errors()
         errors = validate(ctx)
+        try:
+            # 收集打包内容条目的缺失错误（不落盘）；无实际编译输入时
+            # 入口缺失不豁免 → 进入条目级高亮
+            ctx.builder.resolve(
+                ctx.source_dir,
+                entry_exempt=bool(ctx.producer_cfg.get("compile")
+                                  or ctx.producer_cfg.get("manifest")))
+        except BuildError as exc:
+            errors += exc.errors
         if errors:
+            # 条目级错误 → 对应行红框红字
+            rels = {msg.split("不存在: ", 1)[1]
+                    for msg in errors if "不存在: " in msg}
+            # 「入口必须是单个文件」→ 定位到该入口条目行
+            if any("入口必须是单个文件" in m for m in errors):
+                it = ctx.builder.entry_item()
+                if it:
+                    key = next((k for k in ("path", "dir", "pattern")
+                                if k in it), "")
+                    if key:
+                        rels.add(it[key])
+            # 「入口条目重复」→ 高亮所有 entry 条目行
+            if any("入口条目重复" in m for m in errors):
+                for it in ctx.builder.items():
+                    if "entry" in it.get("tags", []):
+                        key = next((k for k in ("path", "dir", "pattern")
+                                    if k in it), "")
+                        if key:
+                            rels.add(it[key])
+            if rels:
+                self._dist_view.mark_errors(rels)
+            # 区域级错误（如打包内容为空 / 缺少入口）→ 容器红框 + 提示
+            area_msg = next((m for m in errors
+                             if "入口" in m and "不存在: " not in m), "")
+            if area_msg:
+                self._dist_view.mark_errors(rels, area_msg)
             for msg in errors:
                 self._logger.error(f"构建 → {msg}")
             self._highlight_tab("构建")
@@ -414,8 +457,6 @@ class App(ctk.CTk):
             output_dir=Path(self._output_dir) if self._output_dir else plugin_dir / "output",
             plugin_name=plugin_dir.name,
             producer_id=self._producer_view.get_producer_id(),
-            entry=(self._pm.get_field("entry", "")
-                   if self._pm else ""),
             builder=Builder(self._pm) if self._pm else Builder(
                 ProjectManager(str(plugin_dir))),
             log=self._logger,
