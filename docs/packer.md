@@ -1,26 +1,45 @@
-# DGHub SDK Packer 使用指南
+﻿# DGHub SDK Packer 使用指南
 
-图形化桌面工具 + 命令行界面，帮助开发者配置插件信息、打包并分发 DGHub 插件
-（产物 `manifest.json` 构建时自动生成）。GUI 与 CLI 共用同一构建内核，均以插件目录下的
-`.dghub-sdk/` 为项目数据源（类比 `.git/`，是「Packer 项目」的标志）。
+图形化桌面工具，帮助开发者配置插件信息、打包并分发 DGHub 插件（产物
+`manifest.json` 构建时自动生成）。纯 GUI 工具（无 CLI）：配置与构建均在
+界面内完成；CI / 脚本化场景请直接使用 [DGHub SDK](../sdk/dghub_sdk.py)
+编程。以插件目录下的 `.dghub-sdk/` 为项目数据源（类比 `.git/`，是
+「Packer 项目」的标志）。
 
 ---
 
 ## 下载与安装
 
 从 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases) 下载
-`dghub-sdk-packer-setup.exe`，双击安装（每用户安装，无需管理员）。安装后：
-
-- **GUI**：开始菜单「DGHub SDK Packer」
-- **CLI**：新开终端直接用 `dgpacker <命令>`（安装目录已加入 PATH）
+`dghub-sdk-packer-setup.exe`，双击安装（每用户安装，无需管理员）。安装后
+开始菜单「DGHub SDK Packer」启动 GUI。
 
 如需从源码运行（需要 [uv](https://docs.astral.sh/uv/)）：
 
 ```bash
 uv sync --project packer
-uv run --project packer python packer/src/gui/main.py     # GUI
-uv run --project packer python packer/src/cli/main.py --help   # CLI
+uv run --project packer python packer/src/gui/main.py
 ```
+
+---
+
+## 概念：两阶段构建
+
+Packer 把「源码项目 → DGHub 插件包」拆成两阶段：
+
+```
+阶段 1：pre-build 预构建（可选，显式单选）
+   ├─ (None)          不执行任何构建步骤，直接收集打包内容
+   ├─ Python          按依赖清单自动下载依赖 → PyInstaller 打包为自包含 exe（onedir）
+   └─ 自定义命令       构建前执行用户命令（如编译），产物由打包内容声明
+      │
+      ▼
+阶段 2：统一构建步骤（对所有预构建一致）
+   收集打包内容 + 预构建产物 → 生成 manifest.json → 组装 zip / 文件夹
+```
+
+插件包结构（通用）：`manifest.json + 入口产物 + 其它资源（保留相对路径）`。
+Python 预构建的产物是 onedir 树（`<名>.exe` + `_internal/`），收集时整树进入包。
 
 ---
 
@@ -29,60 +48,51 @@ uv run --project packer python packer/src/cli/main.py --help   # CLI
 ### 工作流概览
 
 ```
-选择插件目录 → 选择构建系统 → 填写插件信息 → 配置构建内容 → 构建
+选择插件目录 → （预构建页）选择/配置预构建 → （构建页）打包内容 → 构建
 ```
 
-1. **打开插件目录** — 选择插件目录（任意文件夹均可；Packer 在其中创建/读取 `.dghub-sdk/` 存放插件配置，首次选择即初始化新项目）
-2. **选择构建系统** — 顶部栏下拉框选择（每种语言对应一个构建系统，文案为「语言 - 构建系统」）：
-   - `Python - uv` — Python 项目，依赖清单为 `pyproject.toml`（也可选 `requirements.txt`，uv 同样能消费）
-   - `(无构建系统)` — 不使用任何构建器，直接打包已构建的原始文件
-3. **填写插件信息** — 在信息标签页填写元信息与配置 schema，产物 `manifest.json` 构建时自动生成
-4. **配置构建内容** — 在构建标签页指定依赖清单或收集目录、入口、附加文件、发布目标
-5. **构建** — 导出 `.zip` / 文件夹，Python 系统可选构建为独立 `.exe`
+1. **打开插件目录** — 顶部栏选择插件目录（任意文件夹均可；Packer 在其中创建/读取 `.dghub-sdk/` 存放插件配置，首次选择即初始化新项目）
+2. **预构建页** — 下拉单选预构建（无 / Python / 自定义命令），并按所选预构建填写设置（见下）
+3. **信息页** — 填写插件元信息与配置 schema，产物 `manifest.json` 构建时自动生成
+4. **构建页** — 项目根、入口文件、打包内容（文件/目录/规则，可标记入口）与发布选项
+5. **构建** — 导出 `.zip`（分发）或文件夹（调试）
 
-### 信息
+### 预构建
 
-可视化填写插件信息（构建时据此自动生成产物 `manifest.json`）：
+预构建页显式选择 pre-build 预构建（单选下拉），选中后显示对应设置字段：
 
-- 基础字段（id / name / version / author / description / homepage）
-- `config_schema` 编辑器 — 拖拽式添加 section 与 field，支持所有字段类型
-- `capabilities` 开关
-- 实时校验：ID 格式、必填项、语义化版本
+- **(None)** — 不执行 pre-build，构建页的打包内容直接收集（纯收集模式）
+- **Python (uv + PyInstaller)** — 依赖清单必填（`pyproject.toml` / `setup.py` / `setup.cfg` / `requirements*.txt`，均为 uv 可识别格式）；可选「包含 dghub-sdk」；清单格式受支持时绿色 `✓` 标注，不受支持浅红警示；旁有 PyInstaller 可用性标注（未检测到提示 `pip install pyinstaller`，Packer 不自动安装）
+- **自定义命令** — 预构建命令必填（如 `dotnet build -c Release`），构建时先在执行目录执行（默认项目根），非零返回码视为构建失败；执行目录行仅在填写命令后可用
 
-入口文件（entry）在构建标签页按构建系统配置，构建时一并写入产物 manifest。
+「从预构建填充构建内容」按钮（构建页）串联探测与推导：Python 预构建会自动
+探测 `pyproject.toml`（建议清单与 `[tool.dghub].entry` 入口）并推导打包内容
+中的入口条目（`<插件名>.exe`）；只填空，不覆盖已有设置。
 
 ### 构建
 
-打包内容、构建选项与发布目标，内容随构建系统切换。
+构建页配置打包内容与发布选项：
 
-依赖由项目自身的清单文件管理，Packer 只读清单并安装到 `vendor/`，**不修改项目源文件、不修改项目外文件**（只写 `.dghub-sdk/` 与输出目录）。
+- **项目根** — 收集根（入口、打包内容条目均相对它解析）；未设置时回退插件目录
+- **入口文件** — 阶段 1 输入：Python 预构建时为 `.py` 源码入口；无预构建/自定义命令时为产物路径；`[tool.dghub].entry` 约定可由「从预构建填充」自动应用
+- **打包内容** — 统一文件选择列表，支持三种条目：
+  - 文件（`添加` 打开混合选择对话框，文件与文件夹均可多选；选文件夹 = 目录条目，递归收集）
+  - 目录（保留相对子目录结构发布）
+  - 规则（`添加规则`，glob 如 `dist/**`，构建时求值）
+  - 入口由「设为入口」标记（列表显示绿色「入口」徽标；恰好一个，缺失/重复构建校验报错）
+- **No Zip** — 复选框：不勾 = `.zip` 包（默认，分发）；勾选 = 输出文件夹（本地调试）
+- **输出目录** — 顶部栏选择（空 = 插件目录/output）
+- **输出文件预览** — 实时树（打包内容 + Python 预构建产物 = exe + `_internal/`）
 
-**Python - uv**（从 Python 源码构建插件）：
-
-- 依赖清单 — 在视图内选择清单文件（`pyproject.toml` / `setup.py` / `setup.cfg` / `requirements*.txt`，均为 uv 可识别格式）；**项目根 = 清单所在目录**，入口与依赖安装均以此为基准；未选择时跳过依赖打包（无第三方依赖属正常情形），项目根 = 插件目录
-- 依赖来源面板 — 三态显示：已选且格式受支持为绿色 `✓`，未选为黄色提示（将跳过依赖打包），已选但格式不受支持为浅红 `? 未知构建系统`（构建时校验会拦截）；另有 uv 可用性标注（未检测到提示 `pip install uv`，Packer 不自动安装）
-- 入口文件 — 必须为 `.py` 文件，相对项目根；可在 pyproject.toml 中声明 `[tool.dghub]` 段的 `entry = "src/main.py"`，选择清单时自动填充入口（仍可修改；Packer 只读不写该文件）
-- 构建选项 — 可选构建为独立 exe（需要 PyInstaller，复选框旁有工具依赖标注，未检测到时变红提示）、可选包含 dghub-sdk（exe 与非 exe 模式均生效：非 exe 时将本地 dghub-sdk 复制进 `vendor/`；若清单已声明 dghub-sdk 则以清单版为准并跳过本地注入）
-
-**(无构建系统)**（不使用任何构建器，直接打包原始文件）：
-
-- 预构建命令 — 可选；填写后构建时先在**执行目录**执行（如 `dotnet build -c Release`），非零返回码视为构建失败
-- 执行目录 — 预构建命令的执行位置（如 `.csproj` 所在的项目根），默认插件目录；仅在填写了预构建命令时可用（未填时置灰显示默认值）
-- 收集目录 — 在视图内选择，是 entry / 附加文件 / glob 规则的选取根，**始终指向产物根**（如 `bin/Release/net8.0/`）；未选择时回退插件目录
-- 入口文件 — 可编辑输入或用选择器指定，相对收集目录，可为任意文件（`.exe` / `.js` / `.bat` 等）；允许填写预构建将生成的文件，存在性在预构建执行后才校验
-- 附加文件 — 支持两种条目：精确文件（多选添加）与 glob 规则（如 `*.dll`、`dist/**`，构建时在预构建后求值）；每条可指定放入根目录（如 `.dll`）或 `vendor/`
-- 不执行任何语言特定构建，产物为 manifest + 清单文件的打包
-
-> 示例：.NET 插件将执行目录设为项目根、预构建命令填 `dotnet build -c Release`、
-> 收集目录设为 `bin/Release/net8.0/`，入口填 `MyPlugin.exe`、附加规则 `*.dll`；
-> 若产物已提前构建好，则只需设收集目录，命令与执行目录留空。
-
-各系统的目录与配置按系统独立记忆，切换互不影响；均支持发布为 `.zip`（分发）或文件夹（本地调试），底部预览实时显示输出结构（含规则当前匹配结果）。
+依赖由项目自身的清单文件管理，Packer 只读清单并安装到中间目录（`.deps/`），
+**不修改项目源文件、不修改项目外文件**（只写 `.dghub-sdk/` 与输出目录）。
+Python 预构建打包的 exe 完全自包含：依赖打进 `_internal/`，**DGHub 运行环境
+对 exe 不可见**（websockets 等基础依赖不免费，需在清单中声明）。
 
 ### 构建执行与取消
 
-- 点击底部「**开始构建**」启动；构建在后台运行，全过程锁定构建系统选择器、目录选择与信息/构建页编辑，避免中途改动导致状态不一致
-- 校验一次性检测所有必填项（信息页 id / name / version、入口文件、输出目录），错误一次全部高亮；修正任一字段即刻恢复其边框，该页错误全部清除后标题高亮与「构建失败」状态一并消除
+- 点击底部「**开始构建**」启动；构建在后台运行，全过程锁定目录选择与各页编辑，避免中途改动导致状态不一致
+- 校验一次性检测所有必填项（信息页 id / name / version、入口文件、预构建必要字段、打包内容入口条目、输出目录），错误一次全部高亮；修正任一字段即刻恢复其边框，该页错误全部清除后标题高亮与「构建失败」状态一并消除
 - 构建期间「开始构建」按钮变为「**取消构建**」：点击弹出二次确认，确认后立即终止正在运行的命令（pre-build / 依赖安装 / 打包，含其子进程树），并清理输出目录内已产生的中间产物（**不触碰用户源目录中的 pre-build 产物**）
 - 关闭窗口时若构建仍在进行，会先终止子进程再退出，不残留 uv / PyInstaller / pre-build 进程
 
@@ -91,16 +101,12 @@ uv run --project packer python packer/src/cli/main.py --help   # CLI
 应用设置与关于页：
 
 - **外观模式** — system / light / dark 主题切换
-- **PyPI 镜像源** — 打包依赖到 `vendor/` 时使用的下载源（默认官方
-  pypi.org，预置清华 / 阿里云 / 中科大镜像）。网络无法访问官方源
-  （如超时、TLS 握手失败）时切换为国内镜像即可；选择实时保存，
-  全局生效（跨项目）。选「官方」时不注入任何配置，uv 自身的
-  环境变量与配置文件照常生效
+- **PyPI 镜像源** — 打包依赖（uv 下载）时使用的下载源（默认官方 pypi.org，预置清华 / 阿里云 / 中科大镜像）。网络无法访问官方源时切换为国内镜像即可；选择实时保存，全局生效（跨项目）。选「官方」时不注入任何配置，uv 自身的环境变量与配置文件照常生效
 - 应用版本信息、相关链接与开源协议（AGPLv3）
 
 ### 日志
 
-构建全过程输出集中显示：校验、pre-build、依赖安装、PyInstaller、打包逐步记录；校验失败与构建错误在此给出具体原因；旧版配置重置等提示也记录于此。
+构建全过程输出集中显示：校验、pre-build、依赖安装、PyInstaller、打包逐步记录；校验失败与构建错误在此给出具体原因；旧版配置迁移等提示也记录于此。
 
 - 分级着色：**错误**（红）/ **警告**（橙）/ **成功**（绿，仅最终产物 zip / 文件夹）三类着色，其余为普通信息（默认色）
 - 外部工具（uv / PyInstaller 等）的原始输出以 `─── 来源 ───` 分隔块成段展示，并标注退出码
@@ -108,63 +114,34 @@ uv run --project packer python packer/src/cli/main.py --help   # CLI
 
 ---
 
-## CLI 使用
+## 项目配置（.dghub-sdk/project.json）
 
-面向脚本 / CI / 自动化场景被调用（不是双击运行）。安装后 `dgpacker` 已入 PATH；
-也可从源码运行：
-
-```bash
-uv run --project packer python packer/src/cli/main.py <命令> [目录] [选项]
-# 安装后：dgpacker <命令> [目录] [选项]（console，stdout 可见）
-```
-
-### 两种工作流
-
-- **GUI 配置 → CLI/CI 构建**：先用 GUI 配好（生成 `.dghub-sdk/`），此后无需改动即可
-  反复 `packer build`（CI 一行出包）。
-- **完全无 GUI**：`packer init` 建项目 → 写 `packer-input.json` → `packer apply` 落盘 →
-  `packer build`。`packer-input.json` 是可选的「输入清单」（纯 JSON，不支持注释），
-  按 GUI 输入语义回放应用到 `.dghub-sdk/`。
-
-### 命令
-
-| 命令 | 作用 |
-|---|---|
-| `build [目录]` | 读 `.dghub-sdk/` 构建；`-o/--output`、`--target zip\|folder`、`--pypi-index URL` |
-| `validate [目录]` | 仅校验插件信息与构建配置，不构建 |
-| `init [目录]` | 初始化 `.dghub-sdk/`；`--build-system uv\|generic`（默认按 `pyproject.toml` 智能探测）、`--force` |
-| `apply [目录]` | 应用 `packer-input.json` 到 `.dghub-sdk/`，并打印本次更新的字段（仅变化项）；`-f/--file`、`--dry-run`；**要求项目已存在，不自动 init** |
-| `export [目录]` | 从 `.dghub-sdk/` 导出 `packer-input.json`；`-f/--file`、`--force` |
-
-全局选项：`-V/--version`、`--no-color`（禁用着色）、`-v/--verbose`、`-q/--quiet`。
-退出码：0 成功；2 用法错误（如缺 `.dghub-sdk/`）；3 校验失败；4 构建失败；130 取消。
-退出码为应用层约定、跨平台一致（由程序主动返回）；130 沿用 Unix Ctrl+C 惯例值，Windows 上同样由程序返回而非 OS 推导。
-
-> CLI 不加载 GUI 依赖，可在无显示环境（CI）运行；`Ctrl+C` 会终止正在运行的
-> 命令（含子进程树）。
-
-### packer-input.json（输入清单）
-
-**部分输入**：只写你想控制的字段，未写的键 `apply` 不碰、保持当前值（新项目即各自默认）。纯 JSON，不支持注释。
-
-- **保持默认** → 省略该键
-- **重置为默认** → 写成默认值（如 generic 的 `source_dir: ""`、`target: "zip"`）；因异于原值，`apply` 会记为一次变化并打印
-- `apply` 只打印**实际变化**的字段；同内容再次 `apply` 输出 0 个字段
-
-字段结构（均可部分提供）：
+配置由 GUI 管理，无需手写；格式为 format_version 2（顶层平铺 + builder 节）：
 
 ```json
 {
-  "plugin": { "id": "", "name": "", "version": "", "entry": "", "capabilities": {} },
-  "build":  { "system": "uv|generic", "target": "zip|folder",
-              "manifest": "pyproject.toml", "build_exe": true, "include_sdk": true,
-              "source_dir": "", "pre_build": "", "exec_dir": "", "files": [] },
-  "config_schema": {}
+  "format_version": 2,
+  "producer": "python",
+  "source_dir": "",
+  "entry": "src/main.py",
+  "pre_build": "",
+  "exec_dir": "",
+  "manifest": "pyproject.toml",
+  "include_sdk": true,
+  "builder": {
+    "files": [
+      { "path": "my-plugin.exe", "tags": ["entry"] },
+      { "dir": "assets" },
+      { "pattern": "dist/**" }
+    ],
+    "no_zip": false,
+    "output_dir": ""
+  }
 }
 ```
 
-> `plugin.entry` 落入当前构建系统命名空间；`build.*` 按 `system` 取用对应字段
-> （`manifest`/`build_exe`/`include_sdk` 属 uv，`source_dir`/`pre_build`/`exec_dir`/`files` 属 generic）。
+旧格式（format_version 1）打开时自动迁移（字段归位、预构建推断、`extra_files`
+去 dest 入 `files`、`target` 映射 `no_zip`），日志提示检查设置。
 
 ---
 
@@ -177,7 +154,7 @@ uv sync --project packer
 uv run --project packer python packer/build.py            # 可选 --version X.Y.Z
 ```
 
-- GUI 与 CLI 共享一份 Python 运行时（onedir + PyInstaller `MERGE`，无每次启动解压 → 启动更快、去重）
+- 单 GUI exe（onedir：`dgpacker-gui.exe` + 共享 `_internal/`，无每次启动解压 → 启动更快）
 - 产物：`packer/installer/dghub-sdk-packer-setup.exe`（onedir 中间物在 `packer/bin/dghub-sdk-packer/`）
 - **前置**：本机需装 [Inno Setup 6](https://jrsoftware.org/isinfo.php)（`ISCC` 在 PATH 或默认安装目录）；若 `[Languages]` 用到简体中文，需 `ChineseSimplified.isl` 在 Inno 的 `Languages\` 目录
 

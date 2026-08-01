@@ -106,17 +106,20 @@ def build_plugin_exe(
     output_dir: str = "",
     source_dir: str = "",
     entry: str = "",
+    dep_dir: str = "",
     canceller: Optional[Canceller] = None,
 ) -> bool:
-    """Build a self-contained .exe from a DGHub plugin directory.
+    """Build a self-contained .exe from a DGHub plugin directory (onedir).
 
     Args:
         plugin_dir: Absolute path to plugin root (where .dghub-sdk lives).
         source_dir: Absolute path to source code root (defaults to plugin_dir).
         include_dghub_sdk: Whether to bundle dghub_sdk.
         logger: 可选日志器；缺省时静默。
-        output_dir: Output directory for the exe.
+        output_dir: Output directory for the onedir product.
         entry: 入口文件（相对 source_dir）；缺省时回退读插件根 manifest.json。
+        dep_dir: 清单依赖安装目录（.deps）；存在时经 --paths 喂给 PyInstaller。
+        canceller: 取消令牌。
 
     Returns:
         True on success.
@@ -138,9 +141,10 @@ def build_plugin_exe(
     out_dir = Path(output_dir).resolve() if output_dir else pdir / "output"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    vendor_dir = sdir / "vendor"
     exe_name = pdir.name
-    exe_output = out_dir / f"{exe_name}.exe"
+    # onedir 产物：out_dir/.pyi/<name>/（exe + _internal/，与打包目标目录隔离）
+    pyi_dir = out_dir / ".pyi"
+    exe_output = pyi_dir / exe_name / f"{exe_name}.exe"
     cache_dir = out_dir / "cache"
 
     log.info(f"打包插件 exe: {pdir}")
@@ -152,10 +156,10 @@ def build_plugin_exe(
         return False
     cmd = py_exe + [
         "-m", "PyInstaller",
-        "--onefile",
+        "--onedir",
         "--windowed",
         "--name", exe_name,
-        "--distpath", str(out_dir),
+        "--distpath", str(pyi_dir),
         "--workpath", str(cache_dir / "pyi_build"),
         "--specpath", str(cache_dir),
     ]
@@ -170,10 +174,14 @@ def build_plugin_exe(
         cmd += ["--hidden-import", "dghub_sdk.enums"]
         log.detail(f"dghub_sdk 路径: {sdk_path}")
 
-    # vendor path (if exists and not empty)
-    if vendor_dir.is_dir() and any(vendor_dir.iterdir()):
-        cmd += ["--paths", str(vendor_dir)]
-        log.detail(f"vendor 路径: {vendor_dir}")
+    # 依赖目录（清单下载产物 .deps，存在才加）
+    if dep_dir and Path(dep_dir).is_dir() and any(Path(dep_dir).iterdir()):
+        cmd += ["--paths", str(dep_dir)]
+        log.detail(f"清单依赖路径: {dep_dir}")
+
+    # 项目根（散装单文件模块：`import utils` 命中 source_dir/utils.py）
+    cmd += ["--paths", str(sdir)]
+    log.detail(f"项目根路径: {sdir}")
 
     # entry
     cmd.append(str(entry_path))

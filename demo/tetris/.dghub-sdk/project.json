@@ -1,0 +1,16 @@
+{
+  "processor": "python",
+  "source_dir": "",
+  "entry": "src/main.py",
+  "pre_build": "",
+  "exec_dir": "",
+  "manifest": "pyproject.toml",
+  "include_sdk": true,
+  "format_version": 2,
+  "builder": {
+    "files": [],
+    "no_zip": false,
+    "output_dir": ""
+  },
+  "producer": "python"
+}

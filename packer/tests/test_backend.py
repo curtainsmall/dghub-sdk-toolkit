@@ -1,0 +1,361 @@
+﻿"""backend 单元测试：配置迁移 / Builder / 处理器 / 管线 / 打包。"""
+
+import json
+from pathlib import Path
+
+import pytest
+
+from backend.builder import BuildError, evaluate_pattern
+from backend.packaging import package_plugin, cleanup_intermediates
+from backend.pipeline import fill_builder, run_build, validate
+from backend.producers import PRODUCERS, get_producer
+from backend.project_manager import UnsupportedFormatError
+
+
+# ---------------------------------------------------------------------------
+# project_manager：format_version 2 配置
+# ---------------------------------------------------------------------------
+
+
+def test_defaults_fill(make_project):
+    pm, _, _ = make_project()
+    project = pm.read_project()
+    assert project["format_version"] == 2
+    assert project["producer"] == ""
+    assert project["include_sdk"] is True
+    assert project["builder"] == {"files": [], "no_zip": False,
+                                  "output_dir": ""}
+
+
+def test_unknown_keys_preserved(make_project):
+    pm, _, _ = make_project()
+    project = pm.read_project()
+    project["future_key"] = {"x": 1}
+    pm.write_project(project)
+    assert pm.read_project()["future_key"] == {"x": 1}
+
+
+def test_migration_v1(make_project, tmp_path):
+    """format_version 1（build_systems 命名空间）破坏性迁移。"""
+    plugin_dir = tmp_path / "legacy"
+    (plugin_dir / ".dghub-sdk").mkdir(parents=True)
+    (plugin_dir / ".dghub-sdk" / "manifest.json").write_text("{}")
+    (plugin_dir / ".dghub-sdk" / "project.json").write_text(json.dumps({
+        "format_version": 1,
+        "build_system": "uv",
+        "target": "folder",
+        "output_dir": "out",
+        "build_systems": {
+            "uv": {"manifest": "pyproject.toml", "entry": "src/main.py",
+                   "build_exe": False, "include_sdk": True},
+            "generic": {"source_dir": "", "entry": "", "pre_build": "",
+                        "exec_dir": "", "extra_files": [
+                            {"path": "assets/icon.png", "dest": "root"},
+                            {"pattern": "dist/**", "dest": "vendor"}]},
+        },
+    }))
+    from backend.project_manager import ProjectManager
+    pm = ProjectManager(str(plugin_dir))
+    project = pm.read_project()
+    assert project["format_version"] == 2
+    assert project["producer"] == "python"      # manifest 非空 → python
+    assert project["entry"] == "src/main.py"
+    assert project["manifest"] == "pyproject.toml"
+    assert project["include_sdk"] is True
+    assert project["builder"]["no_zip"] is True  # target=folder → no_zip
+    assert project["builder"]["output_dir"] == "out"
+    # extra_files 去 dest 入 files
+    assert project["builder"]["files"] == [
+        {"path": "assets/icon.png"},
+        {"pattern": "dist/**"},
+    ]
+
+
+def test_migration_producer_inference(make_project, tmp_path):
+    from backend.project_manager import ProjectManager
+    plugin_dir = tmp_path / "legacy2"
+    (plugin_dir / ".dghub-sdk").mkdir(parents=True)
+    (plugin_dir / ".dghub-sdk" / "manifest.json").write_text("{}")
+    (plugin_dir / ".dghub-sdk" / "project.json").write_text(json.dumps({
+        "format_version": 1,
+        "build_systems": {
+            "uv": {"manifest": "", "entry": "app.py", "include_sdk": False},
+            "generic": {"source_dir": "", "entry": "app.py",
+                        "pre_build": "dotnet build", "exec_dir": ""},
+        },
+    }))
+    pm = ProjectManager(str(plugin_dir))
+    project = pm.read_project()
+    assert project["producer"] == "command"     # 无 manifest → pre_build
+    assert project["pre_build"] == "dotnet build"
+
+
+def test_unsupported_format(make_project):
+    pm, _, _ = make_project()
+    project = pm.read_project()
+    project["format_version"] = 99
+    pm.write_project(project)
+    with pytest.raises(UnsupportedFormatError):
+        pm.read_project()
+
+
+# ---------------------------------------------------------------------------
+# Builder：统一文件列表 + 标签 + resolve
+# ---------------------------------------------------------------------------
+
+
+def test_builder_items_and_tags(make_project):
+    pm, b, _ = make_project()
+    b.add_file("main.exe", ["entry"])
+    b.add_dir("assets")
+    b.add_rule("dist/**")
+    items = b.items()
+    assert items[0] == {"path": "main.exe", "tags": ["entry"]}
+    assert items[1] == {"dir": "assets"}
+    assert items[2] == {"pattern": "dist/**"}
+    b.set_tags(1, ["entry"])
+    assert "entry" in b.items()[1]["tags"]
+    b.remove_item(1)
+    assert len(b.items()) == 2
+
+
+def test_builder_entry_validation(make_project):
+    pm, b, plugin_dir = make_project()
+    # 缺失 entry
+    assert any("入口" in e for e in b.entry_errors(plugin_dir))
+    b.add_file("main.exe", ["entry"])
+    assert b.entry_errors(plugin_dir) == []
+    # 多个 entry
+    b.add_file("other.exe", ["entry"])
+    assert any("重复" in e for e in b.entry_errors(plugin_dir))
+    # 目录/规则不能作 entry（先移除文件条目，只剩 dir 条目）
+    b.remove_item(0)
+    b.remove_item(0)
+    b.add_dir("assets", ["entry"])
+    assert any("单个文件" in e for e in b.entry_errors(plugin_dir))
+
+
+def test_builder_resolve_preserves_subdirs(make_project):
+    pm, b, plugin_dir = make_project()
+    (plugin_dir / "assets" / "sub").mkdir(parents=True)
+    (plugin_dir / "assets" / "sub" / "x.dat").write_text("x")
+    (plugin_dir / "assets" / "a.txt").write_text("a")
+    (plugin_dir / "main.exe").write_text("exe")
+    b.add_file("main.exe", ["entry"])
+    b.add_dir("assets")
+    files = b.resolve(plugin_dir)
+    arcs = [arc for _, arc in files]
+    assert "main.exe" in arcs
+    assert "assets/sub/x.dat" in arcs      # 子目录结构保留
+    assert "assets/a.txt" in arcs
+
+
+def test_builder_resolve_dedup_and_errors(make_project):
+    pm, b, plugin_dir = make_project()
+    (plugin_dir / "assets").mkdir()
+    (plugin_dir / "assets" / "x.dat").write_text("x")
+    (plugin_dir / "main.exe").write_text("exe")
+    b.add_file("main.exe", ["entry"])
+    b.add_dir("assets")
+    b.add_rule("assets/**")                # 与 dir 条目重叠
+    files = b.resolve(plugin_dir)
+    arcs = [arc for _, arc in files]
+    assert arcs.count("assets/x.dat") == 1  # 去重
+    # 缺失文件 → BuildError
+    b.add_file("missing.dat")
+    with pytest.raises(BuildError):
+        b.resolve(plugin_dir)
+
+
+def test_evaluate_pattern(make_project):
+    pm, _, plugin_dir = make_project()
+    (plugin_dir / "dist").mkdir()
+    (plugin_dir / "dist" / "a.bin").write_text("a")
+    (plugin_dir / "dist" / "b.bin").write_text("b")
+    assert evaluate_pattern(plugin_dir, "dist/*.bin") == ["dist/a.bin",
+                                                          "dist/b.bin"]
+
+
+# ---------------------------------------------------------------------------
+# producers：PythonProducer / CommandProducer
+# ---------------------------------------------------------------------------
+
+
+def test_python_producer_probe(tmp_path):
+    root = tmp_path / "p"
+    root.mkdir()
+    (root / "pyproject.toml").write_text(
+        "[tool.dghub]\nentry='src/main.py'\n")
+    py = get_producer("python")
+    assert py.probe(root) == {"manifest": "pyproject.toml",
+                              "entry": "src/main.py", "include_sdk": True}
+    # 无 pyproject → None
+    assert py.probe(tmp_path / "empty") is None
+
+
+def test_python_producer_deduce(make_project):
+    py = get_producer("python")
+    assert py.deduce({"manifest": "pyproject.toml"}, "my-plugin") == [
+        {"path": "my-plugin.exe", "tags": ["entry"]}]
+    assert py.deduce({"manifest": ""}, "my-plugin") is None
+    cmd = get_producer("command")
+    assert cmd.deduce({"pre_build": "x"}, "my-plugin") is None
+
+
+def test_python_producer_manifest_known():
+    py = get_producer("python")
+    for name in ("pyproject.toml", "setup.py", "setup.cfg",
+                 "requirements.txt", "requirements-dev.txt"):
+        assert py.is_known_manifest(name), name
+    assert not py.is_known_manifest("package.json")
+
+
+def test_python_producer_validate(make_project):
+    pm, _, plugin_dir = make_project()
+    py = get_producer("python")
+    cfg = {"manifest": "pyproject.toml", "include_sdk": True}
+    # 缺 manifest → 错误
+    assert py.validate({}, "main.py", plugin_dir)
+    # 不可识别清单 → 错误
+    assert py.validate({"manifest": "package.json"}, "main.py", plugin_dir)
+    # 非 .py 入口 → 错误
+    assert py.validate(cfg, "app.exe", plugin_dir)
+    # 通过（入口存在性由 resolve 兜底）
+    (plugin_dir / "main.py").write_text("x")
+    assert py.validate(cfg, "main.py", plugin_dir) == []
+
+
+def test_producer_registry():
+    assert set(PRODUCERS) == {"python", "command"}
+    assert get_producer("") is None
+    assert get_producer("unknown") is None
+
+
+# ---------------------------------------------------------------------------
+# pipeline：validate / fill / run_build
+# ---------------------------------------------------------------------------
+
+
+def test_validate_required(make_project, make_ctx):
+    pm, b, plugin_dir = make_project()
+    ctx, _ = make_ctx(pm, b, plugin_dir, producer_id="python",
+                      entry="main.py",
+                      producer_cfg={"manifest": "", "include_sdk": True})
+    errors = validate(ctx)
+    # 处理器必要字段（manifest 缺失）+ Builder 必要条目（entry 缺失）
+    assert any("依赖清单" in e for e in errors)
+    assert any("入口" in e for e in errors)
+    # entry 为空
+    ctx2, _ = make_ctx(pm, b, plugin_dir, entry="")
+    assert any("入口文件不能为空" in e for e in validate(ctx2))
+
+
+def test_fill_builder_only_fills_empty(make_project, make_ctx):
+    pm, b, plugin_dir = make_project()
+    pm.set_field("producer", "python")
+    pm.set_field("manifest", "pyproject.toml")
+    pm.set_field("entry", "src/main.py")
+    ctx, _ = make_ctx(pm, b, plugin_dir, producer_id="python",
+                      entry="src/main.py",
+                      producer_cfg={"manifest": "pyproject.toml",
+                                     "include_sdk": True})
+    applied = fill_builder(ctx)
+    assert applied and any("入口" in a for a in applied)
+    assert b.entry_errors(plugin_dir) == []
+    # 再次 fill 不重复添加
+    fill_builder(ctx)
+    assert len(b.items()) == 1
+    # 无处理器 → None
+    ctx2, _ = make_ctx(pm, b, plugin_dir, producer_id="")
+    assert fill_builder(ctx2) is None
+
+
+def test_run_build_no_producer(make_project, make_ctx):
+    """无处理器（纯收集）路径：entry 产物 + 资源 → zip。"""
+    pm, b, plugin_dir = make_project()
+    (plugin_dir / "main.py").write_text("print('hi')\n")
+    (plugin_dir / "assets").mkdir()
+    (plugin_dir / "assets" / "data.json").write_text("{}")
+    b.add_file("main.py", ["entry"])
+    b.add_dir("assets")
+    ctx, _ = make_ctx(pm, b, plugin_dir, entry="main.py",
+                      source_dir=plugin_dir)
+    artifact = run_build(ctx, {"id": "t", "name": "t"})
+    assert artifact is not None
+    # folder 模式（no_zip=False 默认 → zip）
+    assert artifact.name == "testplugin.zip"
+    import zipfile
+    with zipfile.ZipFile(artifact) as zf:
+        names = zf.namelist()
+        assert "manifest.json" in names
+        assert "main.py" in names
+        assert "assets/data.json" in names
+        manifest = json.loads(zf.read("manifest.json"))
+        assert manifest["entry"] == "main.py"
+
+
+def test_run_build_no_zip_folder(make_project, make_ctx):
+    pm, b, plugin_dir = make_project()
+    (plugin_dir / "main.exe").write_text("exe")
+    b.add_file("main.exe", ["entry"])
+    b.set_no_zip(True)
+    ctx, _ = make_ctx(pm, b, plugin_dir, entry="main.exe",
+                      source_dir=plugin_dir)
+    artifact = run_build(ctx, {"id": "t", "name": "t"})
+    assert artifact is not None and artifact.is_dir()
+    assert (artifact / "manifest.json").is_file()
+    assert (artifact / "main.exe").is_file()
+    manifest = json.loads((artifact / "manifest.json").read_text())
+    assert manifest["entry"] == "main.exe"
+
+
+def test_run_build_missing_entry_file(make_project, make_ctx):
+    """entry 条目指向不存在的文件 → collect 阶段 BuildError。"""
+    pm, b, plugin_dir = make_project()
+    b.add_file("missing.exe", ["entry"])
+    ctx, _ = make_ctx(pm, b, plugin_dir, entry="main.py",
+                      source_dir=plugin_dir)
+    with pytest.raises(BuildError):
+        run_build(ctx, {"id": "t", "name": "t"})
+
+
+def test_run_build_command_producer(make_project, make_ctx, tmp_path):
+    """CommandProducer：pre_build 产出文件 → 收集。"""
+    pm, b, plugin_dir = make_project()
+    script = tmp_path / "gen.py"
+    script.write_text(
+        "from pathlib import Path\n"
+        "Path('out/plugin.exe').parent.mkdir(parents=True, exist_ok=True)\n"
+        "Path('out/plugin.exe').write_bytes(b'exe')\n")
+    # pre_build 在 source_dir 执行，产出 out/plugin.exe
+    pm.set_field("producer", "command")
+    pm.set_field("pre_build", f"python {script.as_posix()}")
+    (plugin_dir / "out").mkdir()
+    (plugin_dir / "out" / "plugin.exe").write_bytes(b"exe")
+    b.add_file("out/plugin.exe", ["entry"])
+    ctx, _ = make_ctx(pm, b, plugin_dir, producer_id="command",
+                      entry="main.py", source_dir=plugin_dir,
+                      producer_cfg={"pre_build": f"python {script.as_posix()}",
+                                     "exec_dir": ""})
+    # 执行真实命令（source_dir 为 cwd）
+    ctx.source_dir = plugin_dir
+    ok = run_build(ctx, {"id": "t", "name": "t"})
+    assert ok is not None, "command producer build should succeed"
+    import zipfile
+    with zipfile.ZipFile(ok) as zf:
+        assert "out/plugin.exe" in zf.namelist()
+
+
+def test_packaging_cleanup(make_project):
+    pm, _, plugin_dir = make_project()
+    output = plugin_dir / "output"
+    output.mkdir()
+    (output / ".deps").mkdir()
+    (output / ".pyi").mkdir()
+    (output / "cache").mkdir()
+    (output / "testplugin.zip").write_bytes(b"x")
+    cleanup_intermediates(output, "testplugin")
+    assert not (output / ".deps").exists()
+    assert not (output / ".pyi").exists()
+    assert not (output / "cache").exists()
+    assert (output / "testplugin.zip").exists()  # 产物保留

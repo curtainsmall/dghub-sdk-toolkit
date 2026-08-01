@@ -1,4 +1,4 @@
-"""Main application window — cross-tab layout with top/bottom bars."""
+﻿"""Main application window — cross-tab layout with top/bottom bars."""
 
 import datetime
 import threading
@@ -14,9 +14,9 @@ def _norm(p: str) -> str:
 import customtkinter as ctk
 
 from gui.distribute_tab import DistributeTab
-from backend.build_systems import (BUILD_SYSTEMS, BuildContext, BuildError,
-                                   read_tool_dghub_entry)
-from backend.build_runner import run_build
+from gui.producer_tab import ProducerTab
+from backend.builder import BuildError, Builder
+from backend.pipeline import BuildContext, fill_builder, run_build, validate
 from backend.packaging import cleanup_intermediates
 from gui.log_tab import LogTab
 from backend.logbus import Logger
@@ -27,10 +27,6 @@ from backend.project_manager import (ProjectManager, project_exists,
 from gui.settings_tab import SettingsTab
 from gui.widgets import ToolTip
 from backend import settings_store
-
-# 构建系统下拉项 ↔ 存储值（由构建系统注册表生成）
-_TYPE_LABELS = {bs_id: bs.label for bs_id, bs in BUILD_SYSTEMS.items()}
-_TYPE_VALUES = {v: k for k, v in _TYPE_LABELS.items()}
 
 
 class App(ctk.CTk):
@@ -57,7 +53,6 @@ class App(ctk.CTk):
         self._pm: Optional[ProjectManager] = None
         self._running = False
         self._build_success = False
-        self._build_system = "uv"
         self._canceller: Optional[Canceller] = None  # 当前构建的取消令牌
         # 错误高亮登记表：tab 名 → 当前高亮的控件集合（用于级联清除）
         self._error_fields: dict[str, set] = {"信息": set(), "构建": set()}
@@ -71,6 +66,7 @@ class App(ctk.CTk):
 
         # -- tabs --
         self._info_tab = self._tab_view.add("信息")
+        self._producer_tab = self._tab_view.add("预构建")
         self._dist_tab = self._tab_view.add("构建")
         self._settings_tab = self._tab_view.add("设置")
         self._log_tab = self._tab_view.add("日志")
@@ -80,11 +76,16 @@ class App(ctk.CTk):
             self._info_tab, on_field_edit=self._on_info_field_edit)
         self._info_view.pack(fill="both", expand=True)
 
+        self._producer_view = ProducerTab(
+            self._producer_tab, on_changed=self._on_proc_changed)
+        self._producer_view.pack(fill="both", expand=True)
+
         self._dist_view = DistributeTab(
             self._dist_tab,
             on_select_source=self._select_source_dir,
             on_reset_source=self._reset_source_dir,
-            on_entry_edit=self._on_dist_entry_edit)
+            on_entry_edit=self._on_dist_entry_edit,
+            on_fill_builder=self._fill_builder_clicked)
         self._dist_view.pack(fill="both", expand=True)
 
         self._settings_view = SettingsTab(
@@ -171,24 +172,11 @@ class App(ctk.CTk):
             reset_cmd=self._reset_output_dir)
         self._out_reset_btn = self._out_btns[1]
         
-        # Row 2: 构建系统（跨 tab 全局选择器，初始禁用；右侧为系统说明文案）
-        ctk.CTkLabel(bar, text="构建系统:",
-                     font=ctk.CTkFont(weight="bold")).grid(
-            row=2, column=0, padx=(0, 5), pady=4, sticky="w")
-        self._build_system = "uv"
-        type_frame = ctk.CTkFrame(bar, fg_color="transparent")
-        type_frame.grid(row=2, column=1, sticky="ew", padx=5, pady=4)
-        self._type_menu = ctk.CTkOptionMenu(
-            type_frame, width=200, values=list(_TYPE_LABELS.values()),
-            command=self._on_build_system_changed)
-        self._type_menu.set(_TYPE_LABELS["uv"])
-        self._type_menu.pack(side="left")
-        self._type_menu.configure(state="disabled")
-        # width=1：固定请求宽度，长文案不撑宽顶部栏
-        self._type_hint = ctk.CTkLabel(
-            type_frame, text="", font=ctk.CTkFont(size=11),
-            text_color=("gray40", "gray60"), anchor="w", width=1)
-        self._type_hint.pack(side="left", fill="x", expand=True, padx=(10, 0))
+        # Row 1: 输出目录（初始禁用）
+        self._out_path_frame, self._out_label, self._out_btns = _make_dir_row(
+            bar, 1, "输出目录:", "", self._select_output_dir,
+            reset_cmd=self._reset_output_dir)
+        self._out_reset_btn = self._out_btns[1]
         
         # Initially disable output row
         for b in self._out_btns:
@@ -202,74 +190,31 @@ class App(ctk.CTk):
         else:
             btn.pack_forget()
 
-    def _update_type_hint(self) -> None:
-        """刷新选择器右侧的构建系统说明文案（空描述则不显示）。"""
-        bs = BUILD_SYSTEMS.get(self._build_system)
-        self._type_hint.configure(text=bs.description if bs else "")
-
-    def _on_build_system_changed(self, label: str) -> None:
-        """构建系统切换：持久化、加载新系统目录状态并切换视图。"""
-        self._build_system = _TYPE_VALUES.get(label, "uv")
-        self._update_type_hint()
-        if self._pm:
-            project = self._pm.read_project()
-            project["build_system"] = self._build_system
-            self._pm.write_project(project)
-            # source_dir 按系统独立，切换后从新系统的命名空间重新加载
-            self._load_source_dir_state()
-        self._dist_view.set_build_system(self._build_system)
-        if self._output_dir:
-            self._dist_view.refresh_preview(self._output_dir)
-
-    def _view_key(self) -> str:
-        """当前系统对应的视图/目录行 key（uv/pip 共用 python 行）。"""
-        return "generic" if self._build_system == "generic" else "python"
+    def _on_proc_changed(self) -> None:
+        """预构建设置变更（ProducerTab 回调）：刷新源码目录显示。"""
+        self._push_source_display()
 
     def _load_source_dir_state(self) -> None:
-        """从当前系统命名空间加载项目根锚点并刷新视图显示。
+        """从顶层 source_dir 加载项目根锚点并刷新视图显示。
 
-        uv/pip：锚点 = 选定的依赖清单，项目根 = 清单所在目录；
-        generic：锚点 = 收集目录。未设置时均回退插件目录。
+        未设置时回退插件目录。
         """
         if not self._pm or not self._plugin_dir:
             return
-        cfg = self._pm.get_bs_config(self._build_system)
-        if self._build_system == "generic":
-            stored = cfg.get("source_dir", "")
-            self._source_dir = (self._pm.to_absolute(stored) if stored
-                                else self._plugin_dir)
-            self._source_auto = not stored
-            self._dist_view.set_manifest("")
-        else:
-            stored = cfg.get("manifest", "")
-            if stored:
-                manifest_abs = self._pm.to_absolute(stored)
-                self._source_dir = str(Path(manifest_abs).parent)
-                self._source_auto = False
-                self._dist_view.set_manifest(manifest_abs)
-            else:
-                self._source_dir = self._plugin_dir
-                self._source_auto = True
-                self._dist_view.set_manifest("")
+        stored = self._pm.get_field("source_dir")
+        self._source_dir = (self._pm.to_absolute(stored) if stored
+                            else self._plugin_dir)
+        self._source_auto = not stored
         self._dist_view.set_source_dir(self._source_dir)
         self._push_source_display()
 
     def _push_source_display(self) -> None:
-        """向两个视图推送各自的锚点显示（按系统独立取值）。"""
+        """向构建页推送项目根显示。"""
         if not self._pm or not self._plugin_dir:
             return
-        # python 行显示 Python 系构建系统（uv）选定的清单文件
-        stored = self._pm.get_bs_config("uv").get("manifest", "")
-        if stored:
-            self._dist_view.set_source_display(
-                "python", _norm(self._pm.to_absolute(stored)), False)
-        else:
-            self._dist_view.set_source_display(
-                "python", "未选择（项目根 = 插件目录）", True)
-        # generic 行显示收集目录
-        stored = self._pm.get_bs_config("generic").get("source_dir", "")
+        stored = self._pm.get_field("source_dir")
         path = self._pm.to_absolute(stored) if stored else self._plugin_dir
-        self._dist_view.set_source_display("generic", _norm(path), not stored)
+        self._dist_view.set_source_display(_norm(path), not stored)
 
     # ------------------------------------------------------------------
     # bottom bar
@@ -295,63 +240,33 @@ class App(ctk.CTk):
     # ------------------------------------------------------------------
 
     def _select_source_dir(self) -> None:
-        """构建 tab 视图内锚点行的选择回调（按当前系统持久化）。
-
-        generic 选收集目录；uv/pip 选依赖清单文件（项目根 = 其所在目录）。
-        """
-        if self._build_system == "generic":
-            d = filedialog.askdirectory(title="选择收集目录")
-            if not d:
-                return
-            self._source_dir = d
-            self._source_auto = False
-            if self._pm:
-                self._pm.set_bs_config("generic", "source_dir",
-                                       self._pm.to_relative(d))
-        else:
-            bs = BUILD_SYSTEMS[self._build_system]
-            patterns = bs.manifest_patterns or ("*.*",)
-            f = filedialog.askopenfilename(
-                title=f"选择依赖清单 ({bs.dep_manifest_hint})",
-                initialdir=self._plugin_dir,
-                filetypes=[("依赖清单", patterns), ("所有文件", "*.*")])
-            if not f:
-                return
-            self._source_dir = str(Path(f).parent)
-            self._source_auto = False
-            if self._pm:
-                self._pm.set_bs_config(self._build_system, "manifest",
-                                       self._pm.to_relative(f))
-            self._dist_view.set_manifest(_norm(f))
-            # 可选约定：pyproject.toml 的 [tool.dghub].entry 自动填充入口
-            auto_entry = read_tool_dghub_entry(Path(f))
-            if auto_entry:
-                self._dist_view.set_entry(auto_entry)
-                self._logger.info(
-                    f"已从 [tool.dghub] 自动填充入口: {auto_entry}")
+        """构建页项目根行的选择回调（顶层 source_dir 持久化）。"""
+        if not self._plugin_dir:
+            return
+        d = filedialog.askdirectory(title="选择项目根/收集根")
+        if not d:
+            return
+        self._source_dir = d
+        self._source_auto = False
+        if self._pm:
+            self._pm.set_field("source_dir", self._pm.to_relative(d))
         self._dist_view.set_source_dir(self._source_dir)
         self._push_source_display()
         self._dist_view.clear_entry_error()
         self._clear_field_error("构建", self._dist_view._entry_entry)
-        self._clear_field_error("构建", self._dist_view._entry_generic_entry)
 
     def _reset_source_dir(self) -> None:
-        """重置当前系统的锚点（generic 回插件目录；uv/pip 清除清单）。"""
+        """重置项目根（回插件目录）。"""
         if not self._plugin_dir:
             return
         self._source_dir = self._plugin_dir
         self._source_auto = True
         if self._pm:
-            if self._build_system == "generic":
-                self._pm.set_bs_config("generic", "source_dir", "")
-            else:
-                self._pm.set_bs_config(self._build_system, "manifest", "")
-                self._dist_view.set_manifest("")
+            self._pm.set_field("source_dir", "")
         self._dist_view.set_source_dir(self._plugin_dir)
         self._push_source_display()
         self._dist_view.clear_entry_error()
         self._clear_field_error("构建", self._dist_view._entry_entry)
-        self._clear_field_error("构建", self._dist_view._entry_generic_entry)
 
     def _select_output_dir(self) -> None:
         d = filedialog.askdirectory(title="选择输出目录")
@@ -380,10 +295,12 @@ class App(ctk.CTk):
             self._clear_field_error("构建", self._out_path_frame)
 
     def _save_output_dir(self, out_dir: str) -> None:
-        """Persist output dir setting to project config (存相对插件目录)。"""
+        """Persist output dir setting to builder 节（存相对插件目录）。"""
         if self._pm:
             project = self._pm.read_project()
-            project["output_dir"] = self._pm.to_relative(out_dir)
+            builder = dict(project.get("builder", {}))
+            builder["output_dir"] = self._pm.to_relative(out_dir)
+            project["builder"] = builder
             self._pm.write_project(project)
 
     # ------------------------------------------------------------------
@@ -460,10 +377,7 @@ class App(ctk.CTk):
 
     def _on_dist_entry_edit(self) -> None:
         """构建页入口被编辑（来自 DistributeTab 回调）→ 级联清除高亮。"""
-        widget = (self._dist_view._entry_generic_entry
-                  if self._build_system == "generic"
-                  else self._dist_view._entry_entry)
-        self._clear_field_error("构建", widget)
+        self._clear_field_error("构建", self._dist_view._entry_entry)
 
     def _validate_info_tab(self) -> bool:
         """Validate 信息 tab fields，一次性检测所有必填项。Returns True if valid."""
@@ -481,21 +395,19 @@ class App(ctk.CTk):
         return ok
 
     def _validate_dist_tab(self) -> bool:
-        """Validate 构建 tab，一次性检测入口与输出目录。Returns True if valid."""
-        bs = BUILD_SYSTEMS[self._build_system]
+        """Validate 构建页（含预构建页状态），一次性检测。Returns True if valid."""
+        self._producer_view.save_settings()
+        self._dist_view.save_settings()
         ctx = self._make_build_context()
         ok = True
-        errors = bs.validate(ctx)
+        errors = validate(ctx)
         if errors:
             for msg in errors:
                 self._logger.error(f"构建 → {msg}")
             self._highlight_tab("构建")
             # 入口类错误同时红框对应 entry 控件
             if any("入口" in msg for msg in errors):
-                entry_widget = (self._dist_view._entry_generic_entry
-                                if self._build_system == "generic"
-                                else self._dist_view._entry_entry)
-                self._highlight_field(entry_widget, "构建")
+                self._highlight_field(self._dist_view._entry_entry, "构建")
             ok = False
         if not self._output_dir:
             self._logger.error("输出目录未选择")
@@ -507,17 +419,22 @@ class App(ctk.CTk):
         return ok
 
     def _make_build_context(self) -> BuildContext:
-        """组装校验/构建共用的上下文。"""
+        """组装校验/构建共用的上下文（预构建页 + 构建页状态）。"""
         plugin_dir = Path(self._plugin_dir or ".")
         return BuildContext(
             plugin_dir=plugin_dir,
             source_dir=Path(self._source_dir or self._plugin_dir or "."),
             output_dir=Path(self._output_dir) if self._output_dir else plugin_dir / "output",
             plugin_name=plugin_dir.name,
-            dist_view=self._dist_view,
+            producer_id=self._producer_view.get_producer_id(),
+            entry=self._dist_view.get_entry(),
+            builder=Builder(self._pm) if self._pm else Builder(
+                ProjectManager(str(plugin_dir))),
             log=self._logger,
+            pm=self._pm,
             pypi_index=self._settings_view.get_pypi_index(),
             canceller=self._canceller,
+            producer_cfg=self._producer_view.get_producer_cfg(),
         )
 
     # ------------------------------------------------------------------
@@ -525,18 +442,15 @@ class App(ctk.CTk):
     # ------------------------------------------------------------------
 
     def _lock_controls(self, locked: bool) -> None:
-        """构建期间锁定构建系统选择、目录按钮与两个编辑 tab；结束后恢复。"""
+        """构建期间锁定目录按钮与编辑 tab；结束后恢复。"""
         state = "disabled" if locked else "normal"
-        try:
-            self._type_menu.configure(state=state)
-        except Exception:
-            pass
         for b in getattr(self, "_dir_btns", []) + self._out_btns:
             try:
                 b.configure(state=state)
             except Exception:
                 pass
         self._info_view._set_enabled(not locked)
+        self._producer_view._set_enabled(not locked)
         self._dist_view._set_enabled(not locked)
 
     def _start_build(self) -> None:
@@ -601,19 +515,18 @@ class App(ctk.CTk):
             self._build_success = True
 
             # Step 2: save settings
+            self._producer_view.save_settings()
             self._dist_view.save_settings()
             self._logger.detail("配置已保存")
 
             # Step 3: prepare context
-            bs = BUILD_SYSTEMS[self._build_system]
             ctx = self._make_build_context()
             ctx.output_dir.mkdir(parents=True, exist_ok=True)
-            target = self._dist_view.get_target()
             manifest_data = self._info_view._build_manifest()
 
-            # Step 4: 构建 + 打包（GUI/CLI 共用的后端编排）
+            # Step 4: 构建 + 打包（backend 两阶段管线）
             try:
-                artifact = run_build(ctx, bs, manifest_data, target)
+                artifact = run_build(ctx, manifest_data)
             except BuildError as be:
                 for msg in be.errors:
                     self._logger.error(msg)
@@ -687,27 +600,18 @@ class App(ctk.CTk):
 
         # Push to all tabs
         self._info_view.set_plugin_dir(d, self._pm)
+        self._producer_view.set_plugin_dir(d, self._pm)
         self._dist_view.set_plugin_dir(d, self._pm)
 
-        # Build system
-        self._build_system = project.get("build_system", "uv")
-        if self._build_system not in BUILD_SYSTEMS:
-            self._build_system = "uv"
-        self._type_menu.configure(state="normal")
-        self._type_menu.set(_TYPE_LABELS.get(self._build_system,
-                                             _TYPE_LABELS["uv"]))
-        self._update_type_hint()
-        self._dist_view.set_build_system(self._build_system)
-
-        # Source dir（按系统独立：加载当前系统并刷新两个视图的显示）
+        # Source dir（顶层 source_dir；未设置回退插件目录）
         self._load_source_dir_state()
 
         # Enable output dir row
         for b in self._out_btns:
             b.configure(state="normal")
 
-        # Output dir（存储为相对插件目录，解析为绝对后使用）
-        saved_out = project.get("output_dir", "")
+        # Output dir（builder 节，存储为相对插件目录，解析为绝对后使用）
+        saved_out = project.get("builder", {}).get("output_dir", "")
         if saved_out:
             self._output_dir = self._pm.to_absolute(saved_out)
             self._out_label.configure(text=_norm(self._output_dir),
@@ -723,3 +627,26 @@ class App(ctk.CTk):
 
         self._logger.info(f"已加载项目: {d}")
         self._save_last_plugin_dir(d)
+
+    def _fill_builder_clicked(self) -> None:
+        """「从预构建填充构建内容」按钮：probe + deduce 串联（只填空）。"""
+        if not self._pm or not self._plugin_dir:
+            self._logger.error("请先选择插件目录")
+            return
+        self._producer_view.save_settings()
+        self._dist_view.save_settings()
+        ctx = self._make_build_context()
+        applied = fill_builder(ctx)
+        if applied is None:
+            self._logger.warning("当前没有启用的预构建"
+                                 "（请先在「预构建」页选择预构建）")
+        elif not applied:
+            self._logger.info("当前预构建设置不足以推导构建内容，请手动添加")
+        else:
+            for line in applied:
+                self._logger.info(f"已应用: {line}")
+            # 刷新两页显示（预构建设置 / 打包内容列表 / 预览）
+            self._producer_view.set_plugin_dir(self._plugin_dir, self._pm)
+            self._dist_view.set_plugin_dir(self._plugin_dir, self._pm)
+            self._dist_view.refresh_preview(self._output_dir)
+            self._load_source_dir_state()

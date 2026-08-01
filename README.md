@@ -1,4 +1,4 @@
-# DGHub SDK Toolkit
+﻿# DGHub SDK Toolkit
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/License-AGPLv3-green)
@@ -35,17 +35,17 @@ with dghub_sdk.Agent() as agent:
 
 ## Packer
 
-位于 `packer/`，图形化桌面应用，帮助开发者打包和分发 DGHub 插件。
+位于 `packer/`，图形化桌面应用，帮助开发者打包和分发 DGHub 插件（纯 GUI 工具）。
 
-- 多构建系统 — `Python - uv`（从源码构建）或 `(无构建系统)`（直接打包已有产物）
+- 两阶段构建 — pre-build 预构建（Python uv+PyInstaller / 自定义命令）→ 统一打包步骤
 - 插件信息编辑 — 可视化填写元信息与 `config_schema`，产物 `manifest.json` 构建时自动生成
-- 依赖管理 — 依赖由项目自身清单（`pyproject.toml`）声明，构建时安装到 `vendor/`
-- 发布 — 导出 `.zip` 或文件夹，Python 项目可选构建为独立 `.exe`
-- 命令行界面 — 面向脚本 / CI 的 `build` / `validate` / `init` / `apply` / `export`，与 GUI 共用内核（详见 [使用指南](docs/packer.md#命令行使用cli)）
+- 依赖管理 — 依赖由项目自身清单（`pyproject.toml`）声明，自动下载并打进自包含 exe（onedir）
+- 打包内容 — 文件 / 目录 / 规则三种条目，入口标记、保留相对路径镜像插件根布局
+- 发布 — `.zip`（分发）或文件夹（调试），Python 项目自动构建为独立 exe
 
 ### 下载
 
-从 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases) 下载 `dghub-sdk-packer-setup.exe` 安装（每用户，无需管理员）。安装后：GUI 在开始菜单「DGHub SDK Packer」，CLI 用控制台命令 `dgpacker`（已入 PATH）。
+从 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases) 下载 `dghub-sdk-packer-setup.exe` 安装（每用户，无需管理员）。安装后：开始菜单「DGHub SDK Packer」启动 GUI。
 
 ### 从源码运行
 
@@ -53,9 +53,8 @@ with dghub_sdk.Agent() as agent:
 # 安装依赖（需要 uv）
 uv sync --project packer
 
-# 运行 GUI / CLI
+# 运行 GUI
 uv run --project packer python packer/src/gui/main.py
-uv run --project packer python packer/src/cli/main.py --help
 
 # 构建 Windows 安装器（需 Inno Setup 6）
 uv run --project packer python packer/build.py
