@@ -1,10 +1,9 @@
 ﻿# DGHub SDK Packer 使用指南
 
 图形化桌面工具，帮助开发者配置插件信息、打包并分发 DGHub 插件（产物
-`manifest.json` 构建时自动生成）。纯 GUI 工具（无 CLI）：配置与构建均在
-界面内完成；CI / 脚本化场景请直接使用 [DGHub SDK](../sdk/dghub_sdk.py)
-编程。以插件目录下的 `.dghub-sdk/` 为项目数据源（类比 `.git/`，是
-「Packer 项目」的标志）。
+`manifest.json` 构建时自动生成）。配置与构建均在界面内完成；另附 **CI 专用
+只读构建 CLI**（`dgpacker-cli build`）供持续集成出包。以插件目录下的
+`.dghub-sdk/` 为项目数据源（类比 `.git/`，是「Packer 项目」的标志）。
 
 ---
 
@@ -12,7 +11,8 @@
 
 从 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases) 下载
 `dghub-sdk-packer-setup.exe`，双击安装（每用户安装，无需管理员）。安装后
-开始菜单「DGHub SDK Packer」启动 GUI。
+开始菜单「DGHub SDK Packer」启动 GUI；安装目录已加入用户 PATH，CI 可用
+`dgpacker-cli`（见下）。
 
 如需从源码运行（需要 [uv](https://docs.astral.sh/uv/)）：
 
@@ -111,6 +111,34 @@ Python 预构建打包的 exe 完全自包含：依赖打进 `_internal/`，**DG
 - 分级着色：**错误**（红）/ **警告**（橙）/ **成功**（绿，仅最终产物 zip / 文件夹）三类着色，其余为普通信息（默认色）
 - 外部工具（uv / PyInstaller 等）的原始输出以 `─── 来源 ───` 分隔块成段展示，并标注退出码
 - 日志不自动清空：每次构建前插入 `━━━ 构建 时间 ━━━` 分隔行、历史累积，便于回看与对比；右上角「清空」按钮可手动清空
+
+---
+
+## CI 构建（dgpacker-cli）
+
+面向持续集成的**只读构建 CLI**——唯一命令 `build`，读 `.dghub-sdk/` 两阶段
+构建出包。**无任何配置命令**：项目配置唯一来源是 GUI 生成的 `.dghub-sdk/`
+（建议提交进 git 版本化）；CLI 不修改项目配置（只写输出目录）。
+
+```bash
+dgpacker-cli build [插件目录] [--pypi-index URL] [--no-color]
+# 源码运行：python -m cli.main build [插件目录]
+```
+
+- 默认目录为当前目录；`--pypi-index` 为运行期镜像覆盖（不落盘）
+- stdout 日志（CI 可捕获；`--no-color` 禁用 ANSI 着色）
+- 退出码（应用层约定，跨平台一致）：`0` 成功 / `2` 用法错误（如缺
+  `.dghub-sdk/`）/ `3` 校验失败 / `4` 构建失败 / `130` 取消（Ctrl+C）
+- CI 工作流：本地 GUI 配好项目并提交 → CI 里 `dgpacker-cli build` 一行出包
+
+```yaml
+# GitHub Actions 示例
+- name: Build plugin
+  run: dgpacker-cli build ./my-plugin
+```
+
+> CLI 不加载 GUI 依赖（无需 tkinter）；前置同 GUI：打包环境需系统 Python +
+> uv + PyInstaller（PyInstaller 仅 Python 预构建需要）。
 
 ---
 

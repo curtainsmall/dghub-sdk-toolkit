@@ -45,7 +45,7 @@ with dghub_sdk.Agent() as agent:
 
 ### 下载
 
-从 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases) 下载 `dghub-sdk-packer-setup.exe` 安装（每用户，无需管理员）。安装后：开始菜单「DGHub SDK Packer」启动 GUI。
+从 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases) 下载 `dghub-sdk-packer-setup.exe` 安装（每用户，无需管理员）。安装后：开始菜单「DGHub SDK Packer」启动 GUI；安装目录已入 PATH，CI 可用 `dgpacker-cli build`（只读构建，详见 [使用指南](docs/packer.md#ci-构建dgpacker-cli)）。
 
 ### 从源码运行
 
