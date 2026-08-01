@@ -156,6 +156,7 @@ def build_plugin_exe(
         return False
     cmd = py_exe + [
         "-m", "PyInstaller",
+        "--noconfirm",
         "--onedir",
         "--windowed",
         "--name", exe_name,

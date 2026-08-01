@@ -1,8 +1,31 @@
 {
-  "id": "tetris-game",
+  "id": "tetris",
   "name": "tetris",
   "version": "0.1.0",
   "author": "",
   "description": "",
-  "sdk": "1"
+  "sdk": "1",
+  "config_schema": [
+    {
+      "section": "Control",
+      "fields": [
+        {
+          "key": "switch",
+          "type": "bool",
+          "label": "开关",
+          "default": false
+        },
+        {
+          "key": "1",
+          "type": "duration",
+          "label": "1",
+          "description": "1"
+        }
+      ]
+    },
+    {
+      "section": "5",
+      "fields": []
+    }
+  ]
 }

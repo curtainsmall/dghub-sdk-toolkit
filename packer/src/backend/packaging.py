@@ -1,7 +1,7 @@
-"""插件打包：生成产物 manifest.json、写 zip / 文件夹、清理中间产物。
+﻿"""插件打包：生成产物 manifest.json、写 zip / 文件夹、清理中间产物。
 
 阶段 2 的交付步骤（纯逻辑，经 Logger 汇报）。产物清单（out_files）由
-pipeline 收集（Builder 条目 + 处理器产物树），本模块只负责组装与清理。
+pipeline 收集（Builder 条目 + 编译产物树），本模块只负责组装与清理。
 """
 
 import json

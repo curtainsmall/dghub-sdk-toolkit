@@ -1,8 +1,8 @@
-﻿"""构建编排：两阶段管线（validate → 处理器 run → collect → package）。
+﻿"""构建编排：两阶段管线（validate → 编译 run → collect → package）。
 
-阶段 1 = pre-build 处理器（按 ``producer`` 字段显式单选："" 无 /
+阶段 1 = compile 编译（按 ``compile_system`` 字段显式单选："" 无 /
 "python" / "command"），产出文件；阶段 2 = 统一 build 步骤——收集
-Builder 条目（+ 处理器产物树）→ 生成 manifest → 打包 → 清理。
+Builder 条目（+ 编译产物树）→ 生成 manifest → 打包 → 清理。
 
 BuildContext 由 GUI 组装（app.py），本模块不接触前端。经 ctx.log 汇报。
 """
@@ -38,12 +38,12 @@ class BuildContext:
     pm: Optional[ProjectManager] = None
     pypi_index: str = ""
     canceller: Optional[Canceller] = None
-    # 处理器设置字段（producer 相关，由 app.py 从 project.json 提取）
+    # 编译设置字段（compile_system 相关，由 app.py 从 project.json 提取）
     producer_cfg: dict[str, Any] = field(default_factory=dict)
 
 
 def validate(ctx: BuildContext) -> list[str]:
-    """静态校验：顶层 entry、处理器必要字段、Builder 必要条目。"""
+    """静态校验：顶层 entry、编译必要字段、Builder 必要条目。"""
     errors: list[str] = []
     if not ctx.entry:
         errors.append("入口文件不能为空")
@@ -55,19 +55,19 @@ def validate(ctx: BuildContext) -> list[str]:
 
 
 def fill_builder(ctx: BuildContext) -> Optional[list[str]]:
-    """「从处理器填充」：probe + deduce 串联，只填空。
+    """「从编译填充」：probe + deduce 串联，只填空。
 
-    将建议落盘（处理器设置字段 / 顶层 entry / Builder 条目），
-    返回已应用的描述列表；无处理器返回 None（调用方提示）。
+    将建议落盘（编译设置字段 / 顶层 entry / Builder 条目），
+    返回已应用的描述列表；无编译返回 None（调用方提示）。
     """
     applied: list[str] = []
     proc = get_producer(ctx.producer_id)
     if proc is None or ctx.pm is None:
         return None
 
-    # 1) probe：处理器设置为空时探测项目，建议处理器设置（落盘）
+    # 1) probe：编译设置为空时探测项目，建议编译设置（落盘）
     if not ctx.producer_cfg.get("manifest") \
-            and not ctx.producer_cfg.get("pre_build"):
+            and not ctx.producer_cfg.get("compile"):
         suggest = proc.probe(ctx.plugin_dir)
         if suggest:
             for key, value in suggest.items():
@@ -99,7 +99,7 @@ def run_build(ctx: BuildContext, manifest_data: dict[str, Any]) -> Optional[Path
             ctx.log.error(msg)
         return None
 
-    # ---- 阶段 1：pre-build 处理器 ----
+    # ---- 阶段 1：compile 编译 ----
     proc = get_producer(ctx.producer_id)
     if proc is not None:
         pctx = ProducerContext(
@@ -119,7 +119,7 @@ def run_build(ctx: BuildContext, manifest_data: dict[str, Any]) -> Optional[Path
     # ---- 阶段 2：收集 + manifest + 打包 ----
     out_files: list[tuple[Path, str]] = []
 
-    # 处理器产物树（PythonProducer：.pyi/<name>/ 整树平移到包根）
+    # 编译产物树（PythonProducer：.pyi/<name>/ 整树平移到包根）
     if ctx.producer_id == "python":
         prod = ctx.output_dir / ".pyi" / ctx.plugin_name
         if prod.is_dir():
@@ -136,8 +136,17 @@ def run_build(ctx: BuildContext, manifest_data: dict[str, Any]) -> Optional[Path
     # manifest：entry = entry 标签条目的 arc（validate 已保证恰好一个）
     entry_item = ctx.builder.entry_item()
     assert entry_item is not None and "path" in entry_item
+    entry_arc = entry_item["path"]
+
+    # 入口产物兜底校验：entry 文件可能由编译阶段产出（不在 source_dir），
+    # 收集完成后必须实际存在（产物树或打包内容之一提供）
+    if entry_arc not in {arc for _, arc in out_files}:
+        ctx.log.error(f"入口产物缺失: {entry_arc}"
+                      "（无编译时请检查打包内容中的入口文件）")
+        return None
+
     data = dict(manifest_data)
-    data["entry"] = entry_item["path"]
+    data["entry"] = entry_arc
     data.pop("homepage", None)
 
     return package_plugin(ctx, data, out_files,

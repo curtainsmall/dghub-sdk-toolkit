@@ -1,12 +1,12 @@
-﻿"""pre-build 处理器体系：抽象契约 + 两个实现 + 注册表。
+﻿"""compile 编译体系：抽象契约 + 两个实现 + 注册表。
 
-处理器 = 阶段 1（把源码变成可打包产物）的可插拔实现，由 project.json 的
-``producer`` 字段显式单选（"" 无 / "python" / "command"）。一切语言相关
-解析（清单识别、[tool.dghub].entry 读取、probe、deduce）都在处理器内，
+编译 = 阶段 1（把源码变成可打包产物）的可插拔实现，由 project.json 的
+``compile_system`` 字段显式单选（"" 无 / "python" / "command"）。一切语言相关
+解析（清单识别、[tool.dghub].entry 读取、probe、deduce）都在编译内，
 GUI 与管线不内置任何语言知识。
 
 抽象契约（Producer 九项能力）：身份、设置字段、启用、清单识别、
-探测、预检、校验、推导、执行。处理器不推断 Builder（deduce 只是建议）、
+探测、预检、校验、推导、执行。编译不推断 Builder（deduce 只是建议）、
 不读顶层 entry 之外的信息、不持久化、不接触 GUI。
 """
 
@@ -25,13 +25,13 @@ from backend.winflags import _NO_WINDOW
 
 @dataclass
 class ProducerContext:
-    """处理器运行时上下文（run 时由管线组装）。"""
+    """编译运行时上下文（run 时由管线组装）。"""
 
     plugin_dir: Path
     source_dir: Path
     output_dir: Path
     plugin_name: str
-    cfg: dict[str, Any]          # 处理器设置字段（producer 相关字段）
+    cfg: dict[str, Any]          # 编译设置字段（compile_system 相关字段）
     entry: str                   # 顶层 entry（阶段 1 输入）
     log: Logger
     pypi_index: str = ""
@@ -73,7 +73,7 @@ def run_logged(cmd: Any, logger: Logger, source: str,
 
 
 class Producer:
-    """pre-build 处理器抽象契约（所有处理器共有的接口形状）。"""
+    """compile 编译抽象契约（所有编译共有的接口形状）。"""
 
     id = ""
     label = ""
@@ -87,7 +87,7 @@ class Producer:
         return bool(cfg)
 
     def is_known_manifest(self, filename: str) -> bool:
-        """所选清单是否本处理器可识别（无清单概念恒 False）。"""
+        """所选清单是否本编译可识别（无清单概念恒 False）。"""
         return False
 
     def probe(self, plugin_dir: Path) -> Optional[dict[str, Any]]:
@@ -100,11 +100,11 @@ class Producer:
 
     def validate(self, cfg: dict[str, Any], entry: str,
                  source_dir: Path) -> list[str]:
-        """静态校验处理器设置，返回错误消息列表（空 = 通过）。"""
+        """静态校验编译设置，返回错误消息列表（空 = 通过）。"""
         errors: list[str] = []
         for fname, spec in self.fields.items():
             if spec.get("required") and not cfg.get(fname):
-                errors.append(f"已选择 {self.label} 处理器，"
+                errors.append(f"已选择 {self.label} 编译，"
                               f"但未填写{spec.get('label', fname)}")
         return errors
 
@@ -130,14 +130,14 @@ class CommandProducer(Producer):
     label = "自定义命令"
     description = "构建前执行用户命令（如编译、生成资源），产物由打包内容声明"
     fields = {
-        "pre_build": {"label": "预构建命令", "type": "str",
+        "compile": {"label": "编译命令", "type": "str",
                       "default": "", "required": True},
-        "exec_dir": {"label": "执行目录", "type": "str",
+        "compile_dir": {"label": "执行目录", "type": "str",
                      "default": "", "required": False},
     }
 
     def enabled(self, cfg: dict[str, Any]) -> bool:
-        return bool(cfg.get("pre_build"))
+        return bool(cfg.get("compile"))
 
     def probe(self, plugin_dir: Path) -> Optional[dict[str, Any]]:
         return None
@@ -147,13 +147,13 @@ class CommandProducer(Producer):
         return None
 
     def run(self, ctx: ProducerContext) -> bool:
-        cmd = (ctx.cfg.get("pre_build") or "").strip()
+        cmd = (ctx.cfg.get("compile") or "").strip()
         if not cmd:
-            ctx.log.error("预构建命令为空")
+            ctx.log.error("编译命令为空")
             return False
-        exec_dir = ctx.cfg.get("exec_dir") or str(ctx.source_dir)
-        ctx.log.info(f"执行预构建命令（执行目录 {exec_dir}）: {cmd}")
-        return run_logged(cmd, ctx.log, "pre-build", cwd=exec_dir,
+        compile_dir = ctx.cfg.get("compile_dir") or str(ctx.source_dir)
+        ctx.log.info(f"执行编译命令（执行目录 {compile_dir}）: {cmd}")
+        return run_logged(cmd, ctx.log, "compile", cwd=compile_dir,
                           shell=True, canceller=ctx.canceller)
 
 
@@ -226,8 +226,8 @@ class PythonProducer(Producer):
         if not entry:
             errors.append("入口文件不能为空")
         elif not entry.lower().endswith(".py"):
-            errors.append(f"Python 处理器的入口必须是 .py 文件: {entry}，"
-                          "如为已构建产物请将处理器设为「自定义命令」")
+            errors.append(f"Python 编译的入口必须是 .py 文件: {entry}，"
+                          "如为已构建产物请将编译设为「自定义命令」")
         elif not (source_dir / entry).is_file():
             errors.append(f"入口文件不存在: {entry}")
         return errors
@@ -320,7 +320,7 @@ PRODUCERS: dict[str, Producer] = {
     "command": CommandProducer(),
 }
 
-# 处理器选项（GUI 下拉 / config 校验）：("" 无) 优先于具体处理器
+# 编译选项（GUI 下拉 / config 校验）：("" 无) 优先于具体编译
 PRODUCER_CHOICES: tuple[tuple[str, str], ...] = (
     ("", "无"),
     ("python", "Python (uv + PyInstaller)"),
@@ -329,7 +329,7 @@ PRODUCER_CHOICES: tuple[tuple[str, str], ...] = (
 
 
 def get_producer(producer_id: str) -> Optional[Producer]:
-    """按 id 取处理器（空串或未知返回 None）。"""
+    """按 id 取编译（空串或未知返回 None）。"""
     if not producer_id:
         return None
     return PRODUCERS.get(producer_id)

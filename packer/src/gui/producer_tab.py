@@ -1,8 +1,8 @@
-﻿"""Producer tab — pre-build 处理器选择与设置（下拉单选 + 字段联动）。
+﻿"""Producer tab — compile 编译选择与设置（下拉单选 + 字段联动）。
 
-处理器由 ``producer`` 字段显式单选：""（无）/ "python" / "command"。
+编译由 ``compile_system`` 字段显式单选：""（无）/ "python" / "command"。
 选中后显示对应设置字段；一切语言相关解析（清单识别、[tool.dghub].entry）
-在处理器内（backend.producers），本页只做 UI 呈现与持久化。
+在编译内（backend.producers），本页只做 UI 呈现与持久化。
 """
 
 import subprocess
@@ -24,7 +24,7 @@ _LABEL_W = 92
 
 
 class ProducerTab(ctk.CTkFrame):
-    """处理器页：下拉单选 + 对应设置字段（Python / Command / 无）。"""
+    """编译页：下拉单选 + 对应设置字段（Python / Command / 无）。"""
 
     def __init__(self, master: Any,
                  on_changed: Optional[Callable[[], None]] = None,
@@ -41,8 +41,8 @@ class ProducerTab(ctk.CTkFrame):
         self._producer_var = ctk.StringVar(value="")
         self._manifest_var = ctk.StringVar(value="")
         self._include_sdk_var = ctk.BooleanVar(value=True)
-        self._pre_build_var = ctk.StringVar(value="")
-        self._exec_dir = ""  # 执行目录（绝对路径；空 = 项目根）
+        self._compile_var = ctk.StringVar(value="")
+        self._compile_dir = ""  # 执行目录（绝对路径；空 = 项目根）
 
         self._build_ui()
         self._set_enabled(False)
@@ -65,12 +65,12 @@ class ProducerTab(ctk.CTkFrame):
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(4, weight=1)
 
-        # 处理器选择（下拉单选）
+        # 编译选择（下拉单选）
         row = ctk.CTkFrame(self, fg_color="transparent")
         row.grid(row=0, column=0, columnspan=2, sticky="ew",
                  padx=10, pady=(10, 0))
         row.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(row, text="处理器", width=_LABEL_W, anchor="w",
+        ctk.CTkLabel(row, text="编译系统", width=_LABEL_W, anchor="w",
                      font=ctk.CTkFont(weight="bold")).grid(
             row=0, column=0, padx=(0, 5), sticky="w")
         self._proc_menu = ctk.CTkOptionMenu(
@@ -84,11 +84,22 @@ class ProducerTab(ctk.CTkFrame):
             justify="left")
         self._proc_hint.grid(row=0, column=2, sticky="w", padx=(10, 0))
 
+        # ---- (None) 设置区（producer="" 时显示）----
+        self._none_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self._none_frame.grid(row=1, column=0, columnspan=2, sticky="ew",
+                              padx=10, pady=(10, 0))
+        ctk.CTkLabel(
+            self._none_frame, text="不执行编译：直接收集打包内容（构建页配置）",
+            font=ctk.CTkFont(size=13), text_color=("gray40", "gray60"),
+            anchor="w", wraplength=700, justify="left").pack(
+            anchor="w", padx=4, pady=8)
+
         # ---- Python 设置区（producer="python" 时显示）----
         self._py_frame = ctk.CTkFrame(self, fg_color="transparent")
         self._py_frame.grid(row=1, column=0, columnspan=2, sticky="ew",
                             padx=10, pady=(10, 0))
         self._py_frame.grid_columnconfigure(1, weight=1)
+        self._py_frame.grid_remove()
 
         ctk.CTkLabel(self._py_frame, text="依赖清单", width=_LABEL_W,
                      anchor="w", font=ctk.CTkFont(weight="bold")).grid(
@@ -117,18 +128,19 @@ class ProducerTab(ctk.CTkFrame):
 
         # ---- Command 设置区（producer="command" 时显示）----
         self._cmd_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self._cmd_frame.grid(row=2, column=0, columnspan=2, sticky="ew",
+        self._cmd_frame.grid(row=1, column=0, columnspan=2, sticky="ew",
                              padx=10, pady=(10, 0))
         self._cmd_frame.grid_columnconfigure(1, weight=1)
+        self._cmd_frame.grid_remove()
 
-        ctk.CTkLabel(self._cmd_frame, text="预构建命令", width=_LABEL_W,
+        ctk.CTkLabel(self._cmd_frame, text="编译命令", width=_LABEL_W,
                      anchor="w", font=ctk.CTkFont(weight="bold")).grid(
             row=0, column=0, padx=(0, 5), sticky="w")
-        self._pre_build_entry = ctk.CTkEntry(
-            self._cmd_frame, textvariable=self._pre_build_var,
+        self._compile_entry = ctk.CTkEntry(
+            self._cmd_frame, textvariable=self._compile_var,
             placeholder_text="可选，如 dotnet build -c Release，构建前执行")
-        self._pre_build_entry.grid(row=0, column=1, sticky="ew", padx=5)
-        self._controls.append(self._pre_build_entry)
+        self._compile_entry.grid(row=0, column=1, sticky="ew", padx=5)
+        self._controls.append(self._compile_entry)
 
         ctk.CTkLabel(self._cmd_frame, text="执行目录", width=_LABEL_W,
                      anchor="w", font=ctk.CTkFont(weight="bold")).grid(
@@ -137,32 +149,30 @@ class ProducerTab(ctk.CTkFrame):
                                   fg_color=("gray85", "gray25"),
                                   border_width=0, corner_radius=6)
         exec_frame.grid(row=1, column=1, sticky="ew", padx=5, pady=(8, 0))
-        self._exec_dir_lbl = ctk.CTkLabel(exec_frame, text="项目根（默认）",
+        self._compile_dir_lbl = ctk.CTkLabel(exec_frame, text="项目根（默认）",
                                           fg_color="transparent",
                                           anchor="w", width=1)
-        self._exec_dir_lbl.pack(fill="x", expand=True, padx=8, pady=4)
+        self._compile_dir_lbl.pack(fill="x", expand=True, padx=8, pady=4)
         self._exec_pick_btn = ctk.CTkButton(self._cmd_frame, text="选择目录",
                                             width=90,
-                                            command=self._pick_exec_dir)
+                                            command=self._pick_compile_dir)
         self._exec_pick_btn.grid(row=1, column=2, padx=(5, 0), pady=(8, 0))
         self._exec_reset_btn = ctk.CTkButton(
             self._cmd_frame, text="↺", width=28,
-            command=self._reset_exec_dir, fg_color="transparent",
+            command=self._reset_compile_dir, fg_color="transparent",
             hover_color=("gray70", "gray40"), font=ctk.CTkFont(size=16))
         self._exec_reset_btn.grid(row=1, column=3, padx=(2, 0), pady=(8, 0))
         ToolTip(self._exec_reset_btn, "恢复默认")
         self._controls.extend([self._exec_pick_btn, self._exec_reset_btn])
 
         # 变更即保存
-        self._pre_build_var.trace_add("write", self._on_setting_changed)
-        self._pre_build_var.trace_add(
-            "write", lambda *a: self._update_exec_state())
+        self._compile_var.trace_add("write", self._on_setting_changed)
 
         self._update_exec_state()
         self._update_visibility()
 
     # ------------------------------------------------------------------
-    # 处理器下拉联动
+    # 编译下拉联动
     # ------------------------------------------------------------------
 
     def _producer_id(self) -> str:
@@ -177,35 +187,30 @@ class ProducerTab(ctk.CTkFrame):
             return
         self._update_visibility()
         if self._pm:
-            self._pm.set_field("producer", self._producer_id())
+            self._pm.set_field("compile_system", self._producer_id())
         self._check_pyinstaller_bg()  # Python 选中时后台预检
         if self._on_changed:
             self._on_changed()
 
     def _update_visibility(self) -> None:
-        """按处理器选择显隐设置区。"""
+        """按编译系统选项整区切换设置区（None / Python / Command）。"""
         pid = self._producer_id()
-        py = (pid == "python")
-        cmd = (pid == "command")
-        state = "normal" if py else "disabled"
-        for w in self._py_frame.winfo_children():
-            try:
-                w.configure(state=state)
-            except Exception:
-                pass
-        state = "normal" if cmd else "disabled"
-        for w in self._cmd_frame.winfo_children():
-            try:
-                w.configure(state=state)
-            except Exception:
-                pass
+        self._py_frame.grid_remove()
+        self._cmd_frame.grid_remove()
+        self._none_frame.grid_remove()
+        if pid == "python":
+            self._py_frame.grid()
+        elif pid == "command":
+            self._cmd_frame.grid()
+        else:
+            self._none_frame.grid()
         proc = get_producer(pid)
         self._proc_hint.configure(
-            text=proc.description if proc else "不执行 pre-build，直接收集打包内容")
+            text=proc.description if proc else "不执行 compile，直接收集打包内容")
 
     def _update_exec_state(self) -> None:
-        usable = self._enabled and bool(self._pre_build_var.get().strip())
-        state = "normal" if usable else "disabled"
+        """执行目录行始终可用——Command 区可见即 command 编译模式。"""
+        state = "normal" if self._enabled else "disabled"
         self._exec_pick_btn.configure(state=state)
         self._exec_reset_btn.configure(state=state)
 
@@ -237,27 +242,27 @@ class ProducerTab(ctk.CTkFrame):
         self._on_setting_changed()
         self._check_pyinstaller_bg()
 
-    def _pick_exec_dir(self) -> None:
-        d = filedialog.askdirectory(title="选择预构建命令执行目录")
+    def _pick_compile_dir(self) -> None:
+        d = filedialog.askdirectory(title="选择编译命令执行目录")
         if not d:
             return
-        self._exec_dir = d
+        self._compile_dir = d
         self._refresh_exec_display()
         self._on_setting_changed()
 
-    def _reset_exec_dir(self) -> None:
-        self._exec_dir = ""
+    def _reset_compile_dir(self) -> None:
+        self._compile_dir = ""
         self._refresh_exec_display()
         self._on_setting_changed()
 
     def _refresh_exec_display(self) -> None:
-        if self._exec_dir:
-            text = Path(self._exec_dir).as_posix()
+        if self._compile_dir:
+            text = Path(self._compile_dir).as_posix()
             color = ("gray10", "gray90")
         else:
             text = "项目根（默认）"
             color = ("gray60", "gray60")
-        self._exec_dir_lbl.configure(text=text, text_color=color)
+        self._compile_dir_lbl.configure(text=text, text_color=color)
 
     # ------------------------------------------------------------------
     # PyInstaller 预检（后台线程，仅标注不阻断）
@@ -278,9 +283,9 @@ class ProducerTab(ctk.CTkFrame):
             ok = result.returncode == 0
         except Exception:
             ok = False
-        text = ("需要 PyInstaller" if ok
-                else "未检测到 PyInstaller，请 pip install pyinstaller")
-        color = "gray" if ok else "#FF4444"
+        text = ("PyInstaller installed" if ok
+                else "PyInstaller required")
+        color = ("#2E7D32" if ok else "#DAA520")
         try:
             self.after(0, lambda: self._pyinstaller_hint.configure(
                 text=text, text_color=color))
@@ -307,16 +312,16 @@ class ProducerTab(ctk.CTkFrame):
             self._loading = True
             try:
                 project = self._pm.read_project()
-                pid = project.get("producer", "")
+                pid = project.get("compile_system", "")
                 label = next((pl for p, pl in PRODUCER_CHOICES if p == pid),
                              PRODUCER_CHOICES[0][1])
                 self._proc_menu.set(label)
                 self._manifest_var.set(project.get("manifest", ""))
                 self._include_sdk_var.set(
                     bool(project.get("include_sdk", True)))
-                self._pre_build_var.set(project.get("pre_build", ""))
-                rel_exec = project.get("exec_dir", "")
-                self._exec_dir = (self._pm.to_absolute(rel_exec)
+                self._compile_var.set(project.get("compile", ""))
+                rel_exec = project.get("compile_dir", "")
+                self._compile_dir = (self._pm.to_absolute(rel_exec)
                                   if rel_exec else "")
                 self._refresh_exec_display()
                 # 清单标注
@@ -341,30 +346,30 @@ class ProducerTab(ctk.CTkFrame):
             self._check_pyinstaller_bg()
 
     def save_settings(self) -> None:
-        """保存处理器相关字段到 project.json 顶层。"""
+        """保存编译相关字段到 project.json 顶层。"""
         if not self._pm:
             return
         project = self._pm.read_project()
-        project["producer"] = self._producer_id()
+        project["compile_system"] = self._producer_id()
         project["manifest"] = self._manifest_var.get()
         project["include_sdk"] = self._include_sdk_var.get()
-        project["pre_build"] = self._pre_build_var.get()
-        project["exec_dir"] = (self._pm.to_relative(self._exec_dir)
-                               if self._exec_dir else "")
+        project["compile"] = self._compile_var.get()
+        project["compile_dir"] = (self._pm.to_relative(self._compile_dir)
+                               if self._compile_dir else "")
         self._pm.write_project(project)
 
     def get_producer_id(self) -> str:
         return self._producer_id()
 
     def get_producer_cfg(self) -> dict[str, Any]:
-        """供 BuildContext 组装的处理器设置字段。"""
+        """供 BuildContext 组装的编译设置字段。"""
         pid = self._producer_id()
         if pid == "python":
             return {"manifest": self._manifest_var.get(),
                     "include_sdk": self._include_sdk_var.get()}
         if pid == "command":
-            return {"pre_build": self._pre_build_var.get(),
-                    "exec_dir": self._exec_dir}
+            return {"compile": self._compile_var.get(),
+                    "compile_dir": self._compile_dir}
         return {}
 
     def get_manifest(self) -> str:

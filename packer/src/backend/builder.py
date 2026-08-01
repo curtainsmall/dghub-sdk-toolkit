@@ -1,13 +1,13 @@
-"""Builder：阶段 2 输入视图（打包内容 + 发布选项）+ 收集逻辑。
+﻿"""Builder：阶段 2 输入视图（打包内容 + 发布选项）+ 收集逻辑。
 
-打包内容 = 统一文件选择列表（``builder.files``），用户 / 处理器 deduce /
+打包内容 = 统一文件选择列表（``builder.files``），用户 / 编译 deduce /
 任何来源均可通过同一接口添加条目；特殊条目用 ``tags`` 标记——本计划定义
 ``entry`` 标签（主入口，manifest.entry 引用；必要条目，validate 保证恰好
 一个）。发布选项 = ``no_zip`` / ``output_dir``。
 
-Builder 完全独立：只消费 builder.files 与发布选项，不引用处理器配置、
+Builder 完全独立：只消费 builder.files 与发布选项，不引用编译配置、
 不引用顶层 entry（阶段 1 输入）。收集（resolve）时 arc 保留相对项目根的
-路径（镜像插件根布局），处理器产物树由管线另行并入。
+路径（镜像插件根布局），编译产物树由管线另行并入。
 """
 
 from pathlib import Path
@@ -41,7 +41,7 @@ class Builder:
         self._pm = pm
 
     # ------------------------------------------------------------------
-    # 打包内容（用户 / 处理器 / 任何来源均通过同一接口添加条目）
+    # 打包内容（用户 / 编译 / 任何来源均通过同一接口添加条目）
     # ------------------------------------------------------------------
 
     def _files(self) -> list[dict[str, Any]]:
@@ -92,6 +92,17 @@ class Builder:
                 files[idx].pop("tags", None)
             self._save(files)
 
+    def set_path(self, idx: int, rel: str) -> None:
+        """替换条目路径（保持类型与标签不变）。"""
+        files = self._files()
+        if 0 <= idx < len(files):
+            item = files[idx]
+            for key in ("path", "dir", "pattern"):
+                if key in item:
+                    item[key] = rel
+                    break
+            self._save(files)
+
     def items(self) -> list[dict[str, Any]]:
         """条目列表 [{"path"|"dir"|"pattern": ..., "tags": [...]}]。"""
         return list(self._files())
@@ -119,7 +130,7 @@ class Builder:
     def entry_errors(self, source_dir: Path) -> list[str]:
         """entry 必要条目校验：恰好一个、必须为单个文件。
 
-        文件存在性不在校验期检查——处理器产物（如 <name>.exe）由阶段 1
+        文件存在性不在校验期检查——编译产物（如 <name>.exe）由阶段 1
         构建时生成，存在性由 resolve（收集阶段）兜底报 BuildError。
         """
         entries = [i for i in self.items()
@@ -166,6 +177,10 @@ class Builder:
                 rel = item["path"]
                 src = source_dir / rel
                 if not src.is_file():
+                    if "entry" in item.get("tags", []):
+                        # 入口文件可能由编译阶段产出（如 <插件名>.exe 在
+                        # 处理器产物树中）；缺失与否由管线收集后兜底校验
+                        continue
                     errors.append(f"打包内容文件不存在: {rel}")
                     continue
                 _append(src, rel)

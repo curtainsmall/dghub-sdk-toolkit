@@ -37,7 +37,7 @@ with dghub_sdk.Agent() as agent:
 
 位于 `packer/`，图形化桌面应用，帮助开发者打包和分发 DGHub 插件（纯 GUI 工具）。
 
-- 两阶段构建 — pre-build 预构建（Python uv+PyInstaller / 自定义命令）→ 统一打包步骤
+- 两阶段构建 — compile 编译（Python uv+PyInstaller / 自定义命令）→ 统一打包步骤
 - 插件信息编辑 — 可视化填写元信息与 `config_schema`，产物 `manifest.json` 构建时自动生成
 - 依赖管理 — 依赖由项目自身清单（`pyproject.toml`）声明，自动下载并打进自包含 exe（onedir）
 - 打包内容 — 文件 / 目录 / 规则三种条目，入口标记、保留相对路径镜像插件根布局

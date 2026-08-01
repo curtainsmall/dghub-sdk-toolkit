@@ -1,4 +1,4 @@
-"""CLI 单元测试：build-only（只读构建，无配置命令）。"""
+﻿"""CLI 单元测试：build-only（只读构建，无配置命令）。"""
 
 import json
 import zipfile
@@ -29,11 +29,11 @@ def _write_project(plugin_dir: Path, project: dict, files: dict[str, str]) -> No
 
 
 def test_build_success(tmp_path, capsys):
-    """无预构建（纯收集）：entry 产物 + 资源 → zip，退出码 0。"""
+    """无编译（纯收集）：entry 产物 + 资源 → zip，退出码 0。"""
     root = tmp_path / "proj"
     _write_project(root, {
         "format_version": 2,
-        "producer": "",
+        "compile_system": "",
         "entry": "main.py",
         "builder": {
             "files": [{"path": "main.py", "tags": ["entry"]},
@@ -57,7 +57,7 @@ def test_build_missing_entry(tmp_path, capsys):
     root = tmp_path / "proj"
     _write_project(root, {
         "format_version": 2,
-        "producer": "",
+        "compile_system": "",
         "entry": "main.py",
         "builder": {"files": [], "no_zip": False, "output_dir": ""},
     }, {"main.py": "print('hi')\n"})
@@ -88,7 +88,7 @@ def test_build_no_color_position(tmp_path, capsys):
     root = tmp_path / "proj"
     _write_project(root, {
         "format_version": 2,
-        "producer": "",
+        "compile_system": "",
         "entry": "main.py",
         "builder": {"files": [{"path": "main.py", "tags": ["entry"]}],
                     "no_zip": True, "output_dir": ""},
@@ -103,7 +103,7 @@ def test_build_no_project_readonly(tmp_path, capsys):
     root = tmp_path / "proj"
     project = {
         "format_version": 2,
-        "producer": "",
+        "compile_system": "",
         "entry": "main.py",
         "builder": {"files": [{"path": "main.py", "tags": ["entry"]}],
                     "no_zip": True, "output_dir": ""},

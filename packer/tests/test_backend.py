@@ -1,4 +1,4 @@
-﻿"""backend 单元测试：配置迁移 / Builder / 处理器 / 管线 / 打包。"""
+﻿"""backend 单元测试：配置迁移 / Builder / 编译 / 管线 / 打包。"""
 
 import json
 from pathlib import Path
@@ -21,7 +21,7 @@ def test_defaults_fill(make_project):
     pm, _, _ = make_project()
     project = pm.read_project()
     assert project["format_version"] == 2
-    assert project["producer"] == ""
+    assert project["compile_system"] == ""
     assert project["include_sdk"] is True
     assert project["builder"] == {"files": [], "no_zip": False,
                                   "output_dir": ""}
@@ -58,7 +58,7 @@ def test_migration_v1(make_project, tmp_path):
     pm = ProjectManager(str(plugin_dir))
     project = pm.read_project()
     assert project["format_version"] == 2
-    assert project["producer"] == "python"      # manifest 非空 → python
+    assert project["compile_system"] == "python"      # manifest 非空 → python
     assert project["entry"] == "src/main.py"
     assert project["manifest"] == "pyproject.toml"
     assert project["include_sdk"] is True
@@ -86,8 +86,8 @@ def test_migration_producer_inference(make_project, tmp_path):
     }))
     pm = ProjectManager(str(plugin_dir))
     project = pm.read_project()
-    assert project["producer"] == "command"     # 无 manifest → pre_build
-    assert project["pre_build"] == "dotnet build"
+    assert project["compile_system"] == "command"     # 无 manifest → compile
+    assert project["compile"] == "dotnet build"
 
 
 def test_unsupported_format(make_project):
@@ -97,6 +97,21 @@ def test_unsupported_format(make_project):
     pm.write_project(project)
     with pytest.raises(UnsupportedFormatError):
         pm.read_project()
+
+
+def test_v2_producer_key_migrated(make_project):
+    """v2 早期键 producer → compile_system 温和搬移（落盘一次）。"""
+    pm, _, _ = make_project()
+    project = pm.read_project()
+    project["producer"] = "python"
+    project.pop("compile_system", None)
+    pm.write_project(project)
+    # 重新读取：producer 搬移到 compile_system
+    data = pm.read_project()
+    assert data["compile_system"] == "python"
+    assert "producer" not in data
+    # 已搬移后不再重复
+    assert pm.read_project()["compile_system"] == "python"
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +214,7 @@ def test_python_producer_deduce(make_project):
         {"path": "my-plugin.exe", "tags": ["entry"]}]
     assert py.deduce({"manifest": ""}, "my-plugin") is None
     cmd = get_producer("command")
-    assert cmd.deduce({"pre_build": "x"}, "my-plugin") is None
+    assert cmd.deduce({"compile": "x"}, "my-plugin") is None
 
 
 def test_python_producer_manifest_known():
@@ -242,7 +257,7 @@ def test_validate_required(make_project, make_ctx):
                       entry="main.py",
                       producer_cfg={"manifest": "", "include_sdk": True})
     errors = validate(ctx)
-    # 处理器必要字段（manifest 缺失）+ Builder 必要条目（entry 缺失）
+    # 编译必要字段（manifest 缺失）+ Builder 必要条目（entry 缺失）
     assert any("依赖清单" in e for e in errors)
     assert any("入口" in e for e in errors)
     # entry 为空
@@ -252,7 +267,7 @@ def test_validate_required(make_project, make_ctx):
 
 def test_fill_builder_only_fills_empty(make_project, make_ctx):
     pm, b, plugin_dir = make_project()
-    pm.set_field("producer", "python")
+    pm.set_field("compile_system", "python")
     pm.set_field("manifest", "pyproject.toml")
     pm.set_field("entry", "src/main.py")
     ctx, _ = make_ctx(pm, b, plugin_dir, producer_id="python",
@@ -265,13 +280,13 @@ def test_fill_builder_only_fills_empty(make_project, make_ctx):
     # 再次 fill 不重复添加
     fill_builder(ctx)
     assert len(b.items()) == 1
-    # 无处理器 → None
+    # 无编译 → None
     ctx2, _ = make_ctx(pm, b, plugin_dir, producer_id="")
     assert fill_builder(ctx2) is None
 
 
 def test_run_build_no_producer(make_project, make_ctx):
-    """无处理器（纯收集）路径：entry 产物 + 资源 → zip。"""
+    """无编译（纯收集）路径：entry 产物 + 资源 → zip。"""
     pm, b, plugin_dir = make_project()
     (plugin_dir / "main.py").write_text("print('hi')\n")
     (plugin_dir / "assets").mkdir()
@@ -310,33 +325,33 @@ def test_run_build_no_zip_folder(make_project, make_ctx):
 
 
 def test_run_build_missing_entry_file(make_project, make_ctx):
-    """entry 条目指向不存在的文件 → collect 阶段 BuildError。"""
+    """entry 条目缺失（无编译产出也无源文件）→ 收集后兜底失败。"""
     pm, b, plugin_dir = make_project()
     b.add_file("missing.exe", ["entry"])
-    ctx, _ = make_ctx(pm, b, plugin_dir, entry="main.py",
-                      source_dir=plugin_dir)
-    with pytest.raises(BuildError):
-        run_build(ctx, {"id": "t", "name": "t"})
+    ctx, logs = make_ctx(pm, b, plugin_dir, entry="main.py",
+                         source_dir=plugin_dir)
+    assert run_build(ctx, {"id": "t", "name": "t"}) is None
+    assert any("入口产物缺失" in m for m in logs)
 
 
 def test_run_build_command_producer(make_project, make_ctx, tmp_path):
-    """CommandProducer：pre_build 产出文件 → 收集。"""
+    """CommandProducer：compile 产出文件 → 收集。"""
     pm, b, plugin_dir = make_project()
     script = tmp_path / "gen.py"
     script.write_text(
         "from pathlib import Path\n"
         "Path('out/plugin.exe').parent.mkdir(parents=True, exist_ok=True)\n"
         "Path('out/plugin.exe').write_bytes(b'exe')\n")
-    # pre_build 在 source_dir 执行，产出 out/plugin.exe
-    pm.set_field("producer", "command")
-    pm.set_field("pre_build", f"python {script.as_posix()}")
+    # compile 在 source_dir 执行，产出 out/plugin.exe
+    pm.set_field("compile_system", "command")
+    pm.set_field("compile", f"python {script.as_posix()}")
     (plugin_dir / "out").mkdir()
     (plugin_dir / "out" / "plugin.exe").write_bytes(b"exe")
     b.add_file("out/plugin.exe", ["entry"])
     ctx, _ = make_ctx(pm, b, plugin_dir, producer_id="command",
                       entry="main.py", source_dir=plugin_dir,
-                      producer_cfg={"pre_build": f"python {script.as_posix()}",
-                                     "exec_dir": ""})
+                      producer_cfg={"compile": f"python {script.as_posix()}",
+                                     "compile_dir": ""})
     # 执行真实命令（source_dir 为 cwd）
     ctx.source_dir = plugin_dir
     ok = run_build(ctx, {"id": "t", "name": "t"})

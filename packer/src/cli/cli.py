@@ -1,4 +1,4 @@
-"""build-only CLI：读 .dghub-sdk/ 构建插件（CI 专用，只读配置）。
+﻿"""build-only CLI：读 .dghub-sdk/ 构建插件（CI 专用，只读配置）。
 
 - 唯一命令 ``build [目录]``：读 project.json + manifest.json → 两阶段构建 → 出包
 - 无任何配置命令（init/config/fill/apply/export）——项目配置唯一来源 = GUI
@@ -70,7 +70,7 @@ def _make_ctx(pm: ProjectManager, plugin_dir: str, logger: Logger,
               pypi_index: str) -> BuildContext:
     """从 project.json 组装 BuildContext（只读）。"""
     project = pm.read_project()
-    producer_id = project.get("producer", "")
+    producer_id = project.get("compile_system", "")
     source_dir = pm.to_absolute(project.get("source_dir", "")) or plugin_dir
     out_cfg = project.get("builder", {})
     output_dir = (pm.to_absolute(out_cfg.get("output_dir", ""))
@@ -82,8 +82,8 @@ def _make_ctx(pm: ProjectManager, plugin_dir: str, logger: Logger,
         }
     elif producer_id == "command":
         producer_cfg = {
-            "pre_build": project.get("pre_build", ""),
-            "exec_dir": project.get("exec_dir", ""),
+            "compile": project.get("compile", ""),
+            "compile_dir": project.get("compile_dir", ""),
         }
     else:
         producer_cfg = {}

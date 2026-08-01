@@ -4,12 +4,12 @@ project.json 为唯一配置文件（format_version 2，顶层平铺 + builder �
 
     {
       "format_version": 2,
-      "producer": "python",      # 处理器选择：""（无）/ "python" / "command"
+      "compile_system": "python",      # 编译选择：""（无）/ "python" / "command"
       "source_dir": "",           # 项目根/收集根（空 = 插件目录）
-      "entry": "src/main.py",     # 阶段 1 输入（处理器消费）
-      "pre_build": "",            # CommandProducer 设置（producer="command" 时必填）
-      "exec_dir": "",             # CommandProducer 执行目录（空 = 项目根）
-      "manifest": "",             # PythonProducer 设置（producer="python" 时必填）
+      "entry": "src/main.py",     # 阶段 1 输入（编译消费）
+      "compile": "",            # CommandProducer 设置（compile_system="command" 时必填）
+      "compile_dir": "",             # CommandProducer 执行目录（空 = 项目根）
+      "manifest": "",             # PythonProducer 设置（compile_system="python" 时必填）
       "include_sdk": true,        # PythonProducer 选项：是否打包 dghub-sdk
       "builder": {
         "files": [],              # 统一文件选择列表：[{"path"|"dir"|"pattern", "tags"}]
@@ -18,10 +18,10 @@ project.json 为唯一配置文件（format_version 2，顶层平铺 + builder �
       }
     }
 
-- 路径（manifest / source_dir / exec_dir / output_dir）存相对插件目录的路径，跨盘符时回退绝对路径
+- 路径（manifest / source_dir / compile_dir / output_dir）存相对插件目录的路径，跨盘符时回退绝对路径
 - 未知键在读-改-写时保留，不丢数据
 - 旧格式（format_version 1，build_systems 命名空间）执行破坏性迁移：
-  字段归位（entry 取非空者优先、producer 按 manifest/pre_build 推断、extra_files 去 dest 入
+  字段归位（entry 取非空者优先、producer 按 manifest/compile 推断、extra_files 去 dest 入
   builder.files、target 映射 no_zip），并删除旧 deps.json（manifest.json 不受影响）
 """
 
@@ -44,13 +44,13 @@ _MANIFEST_DEFAULTS: dict[str, Any] = {
     "sdk": "1",
 }
 
-# 顶层默认值（producer 显式单选："" 无 / "python" / "command"）
+# 顶层默认值（compile_system 显式单选："" 无 / "python" / "command"）
 _PROJECT_DEFAULTS: dict[str, Any] = {
-    "producer": "",
+    "compile_system": "",
     "source_dir": "",
     "entry": "",
-    "pre_build": "",
-    "exec_dir": "",
+    "compile": "",
+    "compile_dir": "",
     "manifest": "",
     "include_sdk": True,
 }
@@ -168,7 +168,16 @@ class ProjectManager:
                     f"{_SUPPORTED_FORMAT}：项目由更新版本的 Packer 创建，"
                     "请升级 Packer")
             if fv == _SUPPORTED_FORMAT and "builder" in raw:
-                return self._fill_defaults(raw)
+                data = self._fill_defaults(raw)
+                # v2 早期键 producer → compile_system（温和搬移，落盘一次）
+                if not data.get("compile_system") and data.get("producer"):
+                    data["compile_system"] = data["producer"]
+                    data.pop("producer", None)
+                    try:
+                        self.write_project(data)
+                    except OSError:
+                        pass
+                return data
             # format_version 1 或结构不识别 → 破坏性迁移
 
         had_legacy = (isinstance(raw, dict) and bool(raw)) \
@@ -213,18 +222,18 @@ class ProjectManager:
             "format_version": _SUPPORTED_FORMAT,
             "entry": (uv.get("entry") or gen.get("entry") or ""),
             "source_dir": gen.get("source_dir", ""),
-            "pre_build": gen.get("pre_build", ""),
-            "exec_dir": gen.get("exec_dir", ""),
+            "compile": gen.get("pre_build", ""),        # v1 旧键 pre_build
+            "compile_dir": gen.get("exec_dir", ""),     # v1 旧键 exec_dir
             "manifest": uv.get("manifest", ""),
             "include_sdk": bool(uv.get("include_sdk", True)),
         })
-        # producer 推断：manifest 非空 → python；否则 pre_build 非空 → command
+        # compile_system 推断：manifest 非空 → python；否则 compile 非空 → command
         if data["manifest"]:
-            data["producer"] = "python"
-        elif data["pre_build"]:
-            data["producer"] = "command"
+            data["compile_system"] = "python"
+        elif data["compile"]:
+            data["compile_system"] = "command"
         else:
-            data["producer"] = ""
+            data["compile_system"] = ""
 
         # builder 节：extra_files 去 dest 入 files；target 映射 no_zip
         builder = dict(_BUILDER_DEFAULTS)
@@ -265,7 +274,7 @@ class ProjectManager:
     # ------------------------------------------------------------------
 
     def get_field(self, key: str) -> Any:
-        """读顶层字段（producer / entry / manifest / include_sdk ...）。"""
+        """读顶层字段（compile_system / entry / manifest / include_sdk ...）。"""
         return self.read_project().get(key, _PROJECT_DEFAULTS.get(key))
 
     def set_field(self, key: str, value: Any) -> None:

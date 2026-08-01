@@ -66,7 +66,7 @@ class App(ctk.CTk):
 
         # -- tabs --
         self._info_tab = self._tab_view.add("信息")
-        self._producer_tab = self._tab_view.add("预构建")
+        self._producer_tab = self._tab_view.add("编译")
         self._dist_tab = self._tab_view.add("构建")
         self._settings_tab = self._tab_view.add("设置")
         self._log_tab = self._tab_view.add("日志")
@@ -84,7 +84,6 @@ class App(ctk.CTk):
             self._dist_tab,
             on_select_source=self._select_source_dir,
             on_reset_source=self._reset_source_dir,
-            on_entry_edit=self._on_dist_entry_edit,
             on_fill_builder=self._fill_builder_clicked)
         self._dist_view.pack(fill="both", expand=True)
 
@@ -191,7 +190,7 @@ class App(ctk.CTk):
             btn.pack_forget()
 
     def _on_proc_changed(self) -> None:
-        """预构建设置变更（ProducerTab 回调）：刷新源码目录显示。"""
+        """编译设置变更（ProducerTab 回调）：刷新源码目录显示。"""
         self._push_source_display()
 
     def _load_source_dir_state(self) -> None:
@@ -252,8 +251,6 @@ class App(ctk.CTk):
             self._pm.set_field("source_dir", self._pm.to_relative(d))
         self._dist_view.set_source_dir(self._source_dir)
         self._push_source_display()
-        self._dist_view.clear_entry_error()
-        self._clear_field_error("构建", self._dist_view._entry_entry)
 
     def _reset_source_dir(self) -> None:
         """重置项目根（回插件目录）。"""
@@ -265,8 +262,6 @@ class App(ctk.CTk):
             self._pm.set_field("source_dir", "")
         self._dist_view.set_source_dir(self._plugin_dir)
         self._push_source_display()
-        self._dist_view.clear_entry_error()
-        self._clear_field_error("构建", self._dist_view._entry_entry)
 
     def _select_output_dir(self) -> None:
         d = filedialog.askdirectory(title="选择输出目录")
@@ -316,8 +311,7 @@ class App(ctk.CTk):
         self._out_label.configure(
             text_color=("gray60", "gray60") if self._output_auto
             else ("gray10", "gray90"))
-        # 视图内目录行/entry 红框复位
-        self._dist_view.clear_entry_error()
+        # 视图内目录行红框复位
         self._push_source_display()
         # 信息页必填字段红框复位（恢复默认灰边）
         self._info_view.reset_field_borders()
@@ -375,10 +369,6 @@ class App(ctk.CTk):
         """信息页字段被编辑（来自 ManifestTab 回调）→ 级联清除高亮。"""
         self._clear_field_error("信息", self._info_view._fields.get(key))
 
-    def _on_dist_entry_edit(self) -> None:
-        """构建页入口被编辑（来自 DistributeTab 回调）→ 级联清除高亮。"""
-        self._clear_field_error("构建", self._dist_view._entry_entry)
-
     def _validate_info_tab(self) -> bool:
         """Validate 信息 tab fields，一次性检测所有必填项。Returns True if valid."""
         manifest = self._info_view._build_manifest()
@@ -395,7 +385,7 @@ class App(ctk.CTk):
         return ok
 
     def _validate_dist_tab(self) -> bool:
-        """Validate 构建页（含预构建页状态），一次性检测。Returns True if valid."""
+        """Validate 构建页（含编译页状态），一次性检测。Returns True if valid."""
         self._producer_view.save_settings()
         self._dist_view.save_settings()
         ctx = self._make_build_context()
@@ -405,9 +395,6 @@ class App(ctk.CTk):
             for msg in errors:
                 self._logger.error(f"构建 → {msg}")
             self._highlight_tab("构建")
-            # 入口类错误同时红框对应 entry 控件
-            if any("入口" in msg for msg in errors):
-                self._highlight_field(self._dist_view._entry_entry, "构建")
             ok = False
         if not self._output_dir:
             self._logger.error("输出目录未选择")
@@ -419,7 +406,7 @@ class App(ctk.CTk):
         return ok
 
     def _make_build_context(self) -> BuildContext:
-        """组装校验/构建共用的上下文（预构建页 + 构建页状态）。"""
+        """组装校验/构建共用的上下文（编译页 + 构建页状态）。"""
         plugin_dir = Path(self._plugin_dir or ".")
         return BuildContext(
             plugin_dir=plugin_dir,
@@ -427,7 +414,8 @@ class App(ctk.CTk):
             output_dir=Path(self._output_dir) if self._output_dir else plugin_dir / "output",
             plugin_name=plugin_dir.name,
             producer_id=self._producer_view.get_producer_id(),
-            entry=self._dist_view.get_entry(),
+            entry=(self._pm.get_field("entry", "")
+                   if self._pm else ""),
             builder=Builder(self._pm) if self._pm else Builder(
                 ProjectManager(str(plugin_dir))),
             log=self._logger,
@@ -484,7 +472,7 @@ class App(ctk.CTk):
             return
         if not messagebox.askyesno(
                 "取消构建",
-                "确定取消当前构建？\n正在运行的命令（pre-build / 依赖安装 / "
+                "确定取消当前构建？\n正在运行的命令（compile / 依赖安装 / "
                 "打包）将被立即终止。"):
             return
         if not self._running or self._canceller is None:
@@ -629,7 +617,7 @@ class App(ctk.CTk):
         self._save_last_plugin_dir(d)
 
     def _fill_builder_clicked(self) -> None:
-        """「从预构建填充构建内容」按钮：probe + deduce 串联（只填空）。"""
+        """「从编译填充构建内容」按钮：probe + deduce 串联（只填空）。"""
         if not self._pm or not self._plugin_dir:
             self._logger.error("请先选择插件目录")
             return
@@ -638,14 +626,14 @@ class App(ctk.CTk):
         ctx = self._make_build_context()
         applied = fill_builder(ctx)
         if applied is None:
-            self._logger.warning("当前没有启用的预构建"
-                                 "（请先在「预构建」页选择预构建）")
+            self._logger.warning("当前没有启用的编译"
+                                 "（请先在「编译」页选择编译）")
         elif not applied:
-            self._logger.info("当前预构建设置不足以推导构建内容，请手动添加")
+            self._logger.info("当前编译设置不足以推导构建内容，请手动添加")
         else:
             for line in applied:
                 self._logger.info(f"已应用: {line}")
-            # 刷新两页显示（预构建设置 / 打包内容列表 / 预览）
+            # 刷新两页显示（编译设置 / 打包内容列表 / 预览）
             self._producer_view.set_plugin_dir(self._plugin_dir, self._pm)
             self._dist_view.set_plugin_dir(self._plugin_dir, self._pm)
             self._dist_view.refresh_preview(self._output_dir)
