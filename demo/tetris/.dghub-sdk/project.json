@@ -1,7 +1,6 @@
 {
   "format_version": 2,
-  "compile_system": "python",
-  "source_dir": "",
+  "compile_system": "command",
   "compile": "",
   "compile_dir": "",
   "manifest": "pyproject.toml",

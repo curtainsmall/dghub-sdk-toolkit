@@ -41,16 +41,13 @@ def make_ctx(tmp_path: Path):
     def _make(pm: ProjectManager, builder: Builder,
               plugin_dir: Path, producer_id: str = "",
               producer_cfg: dict | None = None,
-              pypi_index: str = "",
-              source_dir: Path | None = None) -> tuple[BuildContext, list[str]]:
-        source_dir = source_dir or (tmp_path / "source")
+              pypi_index: str = "") -> tuple[BuildContext, list[str]]:
         output_dir = tmp_path / "output"
-        for d in (source_dir, output_dir):
-            d.mkdir(exist_ok=True)
+        output_dir.mkdir(exist_ok=True)
         logs: list[str] = []
         ctx = BuildContext(
             plugin_dir=plugin_dir,
-            source_dir=source_dir,
+            source_dir=plugin_dir,
             output_dir=output_dir,
             plugin_name=plugin_dir.name,
             producer_id=producer_id,

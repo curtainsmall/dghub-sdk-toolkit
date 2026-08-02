@@ -297,7 +297,7 @@ def test_run_build_no_producer(make_project, make_ctx):
     (plugin_dir / "assets" / "data.json").write_text("{}")
     b.add_file("main.py", ["entry"])
     b.add_dir("assets")
-    ctx, _ = make_ctx(pm, b, plugin_dir, source_dir=plugin_dir)
+    ctx, _ = make_ctx(pm, b, plugin_dir )
     artifact = run_build(ctx, {"id": "t", "name": "t"})
     assert artifact is not None
     # folder 模式（no_zip=False 默认 → zip）
@@ -317,7 +317,7 @@ def test_run_build_no_zip_folder(make_project, make_ctx):
     (plugin_dir / "main.exe").write_text("exe")
     b.add_file("main.exe", ["entry"])
     b.set_no_zip(True)
-    ctx, _ = make_ctx(pm, b, plugin_dir, source_dir=plugin_dir)
+    ctx, _ = make_ctx(pm, b, plugin_dir )
     artifact = run_build(ctx, {"id": "t", "name": "t"})
     assert artifact is not None and artifact.is_dir()
     assert (artifact / "manifest.json").is_file()
@@ -330,7 +330,7 @@ def test_run_build_missing_entry_file(make_project, make_ctx):
     """无编译 + entry 条目缺失 → 收集阶段 BuildError（不再豁免）。"""
     pm, b, plugin_dir = make_project()
     b.add_file("missing.exe", ["entry"])
-    ctx, _ = make_ctx(pm, b, plugin_dir, source_dir=plugin_dir)
+    ctx, _ = make_ctx(pm, b, plugin_dir )
     with pytest.raises(BuildError) as exc_info:
         run_build(ctx, {"id": "t", "name": "t"})
     assert any("不存在" in m for m in exc_info.value.errors)
@@ -357,18 +357,15 @@ def test_run_build_command_producer(make_project, make_ctx, tmp_path):
         "from pathlib import Path\n"
         "Path('out/plugin.exe').parent.mkdir(parents=True, exist_ok=True)\n"
         "Path('out/plugin.exe').write_bytes(b'exe')\n")
-    # compile 在 source_dir 执行，产出 out/plugin.exe
+    # compile 在插件目录执行，产出 out/plugin.exe
     pm.set_field("compile_system", "command")
     pm.set_field("compile", f"python {script.as_posix()}")
     (plugin_dir / "out").mkdir()
     (plugin_dir / "out" / "plugin.exe").write_bytes(b"exe")
     b.add_file("out/plugin.exe", ["entry"])
     ctx, _ = make_ctx(pm, b, plugin_dir, producer_id="command",
-                      source_dir=plugin_dir,
                       producer_cfg={"compile": f"python {script.as_posix()}",
-                                     "compile_dir": ""})
-    # 执行真实命令（source_dir 为 cwd）
-    ctx.source_dir = plugin_dir
+                                    "compile_dir": ""})
     ok = run_build(ctx, {"id": "t", "name": "t"})
     assert ok is not None, "command producer build should succeed"
     import zipfile

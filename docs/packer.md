@@ -75,7 +75,6 @@ Python 编译的产物是 onedir 树（`<名>.exe` + `_internal/`），收集时
 
 构建页配置打包内容与发布选项：
 
-- **项目根** — 收集根（打包内容条目均相对它解析）；未设置时回退插件目录
 - **打包内容** — 统一文件选择列表，支持三种条目：
   - 文件（`添加文件` 打开系统多选对话框）
   - 目录（`添加目录`，保留相对子目录结构递归收集）
@@ -151,7 +150,6 @@ dgpacker-cli build [插件目录] [--pypi-index URL] [--no-color]
 {
   "format_version": 2,
   "compile_system": "python",
-  "source_dir": "",
   "compile": "",
   "compile_dir": "",
   "manifest": "pyproject.toml",

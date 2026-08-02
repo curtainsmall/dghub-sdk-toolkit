@@ -5,7 +5,6 @@ project.json 为唯一配置文件（format_version 2，顶层平铺 + builder �
     {
       "format_version": 2,
       "compile_system": "python",      # 编译选择：""（无）/ "python" / "command"
-      "source_dir": "",           # 项目根/收集根（空 = 插件目录）
       "compile": "",            # CommandProducer 设置（compile_system="command" 时必填）
       "compile_dir": "",             # CommandProducer 执行目录（空 = 项目根）
       "manifest": "",             # PythonProducer 设置（compile_system="python" 时必填）
@@ -17,7 +16,7 @@ project.json 为唯一配置文件（format_version 2，顶层平铺 + builder �
       }
     }
 
-- 路径（manifest / source_dir / compile_dir / output_dir）存相对插件目录的路径，跨盘符时回退绝对路径
+- 路径（manifest / compile_dir / output_dir）存相对插件目录的路径，跨盘符时回退绝对路径
 - 未知键在读-改-写时保留，不丢数据
 - 旧格式（format_version 1，build_systems 命名空间）执行破坏性迁移：
   字段归位（producer 按 manifest/compile 推断、extra_files 去 dest 入
@@ -48,7 +47,6 @@ _MANIFEST_DEFAULTS: dict[str, Any] = {
 # 顶层默认值（compile_system 显式单选："" 无 / "python" / "command"）
 _PROJECT_DEFAULTS: dict[str, Any] = {
     "compile_system": "",
-    "source_dir": "",
     "compile": "",
     "compile_dir": "",
     "manifest": "",
@@ -221,8 +219,8 @@ class ProjectManager:
         data = dict(_PROJECT_DEFAULTS)
         data.update({
             "format_version": _SUPPORTED_FORMAT,
-            # v1 entry 弃用：编译入口由 PythonProducer 从 pyproject 现读
-            "source_dir": gen.get("source_dir", ""),
+            # v1 entry/source_dir 弃用：编译入口由 PythonProducer 从 pyproject 现读，
+            # 构建根统一为插件目录
             "compile": gen.get("pre_build", ""),        # v1 旧键 pre_build
             "compile_dir": gen.get("exec_dir", ""),     # v1 旧键 exec_dir
             "manifest": uv.get("manifest", ""),

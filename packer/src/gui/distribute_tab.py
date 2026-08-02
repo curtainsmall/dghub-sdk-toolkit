@@ -1,6 +1,5 @@
 ﻿"""Build tab — 打包内容与发布选项（纯 GUI 工具的单视图构建页）。
 
-- 项目根（收集根）
 - 打包内容：统一文件选择列表（文件 / 目录 / 规则三种条目，标签标记入口）
   +「添加文件」/「添加目录」（常规系统选择器）+「添加规则」+「从编译填充」
 - 发布选项：No Zip 复选框 + 预览树（输出目录在顶部栏）
@@ -29,7 +28,6 @@ _KIND_STYLES = {
 # 标签徽章样式：标签 → ((bg_light, bg_dark), 显示名)
 _TAG_STYLES = {
     "entry": (("#4CAF50", "#2E7D32"), "入口"),
-    "deps": (("#DCE7FB", "#2E4A7A"), "依赖"),
 }
 
 
@@ -38,19 +36,14 @@ class DistributeTab(ctk.CTkFrame):
     """构建页：项目根 / 入口 / 打包内容 / 发布选项 / 预览。"""
 
     def __init__(self, master: Any,
-                 on_select_source: Optional[Callable[[], None]] = None,
-                 on_reset_source: Optional[Callable[[], None]] = None,
                  on_fill_builder: Optional[Callable[[], None]] = None,
                  on_error_cleared: Optional[Callable[[], None]] = None,
                  **kwargs: Any) -> None:
         super().__init__(master, **kwargs)
         self._pm: Optional[ProjectManager] = None
         self._plugin_dir: Optional[str] = None
-        self._source_dir: Optional[str] = None
         self._loading = False
         self._enabled = False
-        self._on_select_source = on_select_source
-        self._on_reset_source = on_reset_source
         self._on_fill_builder = on_fill_builder
         self._on_error_cleared = on_error_cleared
         self._controls: list[ctk.CTkBaseClass] = []
@@ -80,37 +73,17 @@ class DistributeTab(ctk.CTkFrame):
         self.grid_columnconfigure(1, weight=2)
         self.grid_rowconfigure(0, weight=1)
 
-        # ---- 左栏：项目根 + 入口 + 打包内容 ----
+        # ---- 左栏：打包内容 + 发布 ----
         left = ctk.CTkFrame(self)
         left.grid(row=0, column=0, sticky="nsew", padx=(10, 5), pady=10)
         left.grid_columnconfigure(1, weight=1)
 
-        # 项目根行
-        ctk.CTkLabel(left, text="项目根", width=_LABEL_W, anchor="w",
-                     font=ctk.CTkFont(weight="bold")).grid(
-            row=0, column=0, padx=(10, 5), pady=(10, 0), sticky="w")
-        root_frame = ctk.CTkFrame(left, fg_color=("gray85", "gray25"),
-                                  border_width=0, corner_radius=6)
-        root_frame.grid(row=0, column=1, sticky="ew", padx=5, pady=(10, 0))
-        self._root_lbl = ctk.CTkLabel(root_frame, text="", fg_color="transparent",
-                                      anchor="w", width=1)
-        self._root_lbl.pack(fill="x", expand=True, padx=8, pady=4)
-        btn = ctk.CTkButton(left, text="选择目录", width=90,
-                            command=self._request_select_source)
-        btn.grid(row=0, column=2, padx=(5, 0), pady=(10, 0))
-        self._root_reset = ctk.CTkButton(
-            left, text="↺", width=28, command=self._request_reset_source,
-            fg_color="transparent", hover_color=("gray70", "gray40"),
-            font=ctk.CTkFont(size=16))
-        self._root_reset.grid(row=0, column=3, padx=(2, 10), pady=(10, 0))
-        self._controls.extend([btn, self._root_reset])
-
         # 打包内容（添加文件/添加目录 = 常规系统选择器）
         ctk.CTkLabel(left, text="打包内容", width=_LABEL_W, anchor="w",
                      font=ctk.CTkFont(size=14, weight="bold")).grid(
-            row=2, column=0, padx=10, pady=(16, 5), sticky="w")
+            row=0, column=0, padx=10, pady=(16, 5), sticky="w")
         add_frame = ctk.CTkFrame(left, fg_color="transparent")
-        add_frame.grid(row=2, column=1, sticky="w", padx=(5, 0), pady=(16, 5))
+        add_frame.grid(row=0, column=1, sticky="w", padx=(5, 0), pady=(16, 5))
         file_btn = ctk.CTkButton(add_frame, text="添加文件", width=90,
                                  command=self._add_files)
         file_btn.pack(side="left")
@@ -123,7 +96,7 @@ class DistributeTab(ctk.CTkFrame):
         fill_btn = ctk.CTkButton(
             left, text="从编译填充", width=110,
             command=self._fill_builder_clicked)
-        fill_btn.grid(row=2, column=2, columnspan=2, sticky="w",
+        fill_btn.grid(row=0, column=2, columnspan=2, sticky="w",
                       padx=(5, 10), pady=(16, 5))
         self._controls.extend([file_btn, dir_btn, rule_btn, fill_btn])
 
@@ -131,13 +104,13 @@ class DistributeTab(ctk.CTkFrame):
         self._add_hint_lbl = ctk.CTkLabel(
             left, text="", font=ctk.CTkFont(size=11),
             text_color="#FF4444", anchor="w")
-        self._add_hint_lbl.grid(row=3, column=1, columnspan=3, sticky="w",
+        self._add_hint_lbl.grid(row=1, column=1, columnspan=3, sticky="w",
                                 padx=5)
         self._add_hint_lbl.grid_remove()
 
         # 规则输入行（默认隐藏）
         self._rule_input = ctk.CTkFrame(left, fg_color="transparent")
-        self._rule_input.grid(row=4, column=1, columnspan=3, sticky="ew",
+        self._rule_input.grid(row=2, column=1, columnspan=3, sticky="ew",
                               padx=5, pady=(0, 5))
         self._rule_input.grid_columnconfigure(0, weight=1)
         self._rule_entry = ctk.CTkEntry(self._rule_input,
@@ -155,16 +128,16 @@ class DistributeTab(ctk.CTkFrame):
 
         # 条目列表
         self._item_list = ctk.CTkScrollableFrame(left, fg_color="transparent")
-        self._item_list.grid(row=5, column=0, columnspan=4, sticky="nsew",
+        self._item_list.grid(row=3, column=0, columnspan=4, sticky="nsew",
                              padx=5, pady=5)
-        left.grid_rowconfigure(5, weight=1)
+        left.grid_rowconfigure(3, weight=1)
         self._controls.append(self._item_list)
 
         # 区域级错误提示（如打包内容为空 / 缺少入口）
         self._area_err_lbl = ctk.CTkLabel(
             left, text="", font=ctk.CTkFont(size=11),
             text_color="#FF4444", anchor="w")
-        self._area_err_lbl.grid(row=6, column=1, columnspan=3, sticky="w",
+        self._area_err_lbl.grid(row=4, column=1, columnspan=3, sticky="w",
                                 padx=5)
         self._area_err_lbl.grid_remove()
 
@@ -198,27 +171,6 @@ class DistributeTab(ctk.CTkFrame):
         self._no_zip_var.trace_add("write", self._on_setting_changed)
 
     # ------------------------------------------------------------------
-    # 项目根行
-    # ------------------------------------------------------------------
-
-    def _request_select_source(self) -> None:
-        if self._on_select_source:
-            self._on_select_source()
-
-    def _request_reset_source(self) -> None:
-        if self._on_reset_source:
-            self._on_reset_source()
-
-    def set_source_display(self, path: str, auto: bool) -> None:
-        """由 app.py 推送项目根显示（auto = 回退插件目录）。"""
-        color = ("gray60", "gray60") if auto else ("gray10", "gray90")
-        self._root_lbl.configure(text=path, text_color=color)
-        if auto:
-            self._root_reset.grid_remove()
-        else:
-            self._root_reset.grid()
-
-    # ------------------------------------------------------------------
     # 打包内容（统一文件列表，标签标记入口）
     # ------------------------------------------------------------------
 
@@ -232,7 +184,7 @@ class DistributeTab(ctk.CTkFrame):
         b = self._builder()
         if b is None:
             return
-        base = self._source_dir or self._plugin_dir
+        base = self._plugin_dir
         files = filedialog.askopenfilenames(title="选择要打包的文件",
                                            initialdir=base)
         if not files:
@@ -257,7 +209,7 @@ class DistributeTab(ctk.CTkFrame):
         b = self._builder()
         if b is None:
             return
-        base = self._source_dir or self._plugin_dir
+        base = self._plugin_dir
         d = filedialog.askdirectory(title="选择要打包的目录",
                                     initialdir=base)
         if not d:
@@ -273,7 +225,7 @@ class DistributeTab(ctk.CTkFrame):
 
     def _rel_to_source(self, path: str) -> Optional[str]:
         """绝对路径 → 相对项目根的 posix 路径；不在项目根内返回 None。"""
-        base = Path(self._source_dir or self._plugin_dir or ".")
+        base = Path(self._plugin_dir or ".")
         try:
             return Path(path).resolve().relative_to(base.resolve()).as_posix()
         except ValueError:
@@ -321,7 +273,7 @@ class DistributeTab(ctk.CTkFrame):
         b = self._builder()
         if b is None:
             return
-        workdir = Path(self._source_dir or self._plugin_dir or ".")
+        workdir = Path(self._plugin_dir or ".")
         for i, item in enumerate(b.items()):
             kind = ("path" if "path" in item
                     else ("dir" if "dir" in item else "pattern"))
@@ -359,15 +311,14 @@ class DistributeTab(ctk.CTkFrame):
                          text_color=("#FF4444" if is_error else None)
                          ).pack(side="left", fill="x", expand=True,
                                 padx=(8, 6))
-            # 标签徽章：位于文件名右侧（仍左对齐区域）
-            for tag in ("entry", "deps"):
-                if tag in tags:
-                    (tbg, tfg), tname = _TAG_STYLES[tag]
-                    ctk.CTkLabel(inner, text=tname, width=36,
-                                 font=ctk.CTkFont(size=10, weight="bold"),
-                                 fg_color=tbg, text_color=tfg,
-                                 corner_radius=4).pack(side="left",
-                                                        padx=(2, 0))
+            # 入口徽章：位于文件名右侧（仍左对齐区域）
+            if "entry" in tags:
+                (tbg, tfg), tname = _TAG_STYLES["entry"]
+                ctk.CTkLabel(inner, text=tname, width=36,
+                             font=ctk.CTkFont(size=10, weight="bold"),
+                             fg_color=tbg, text_color=tfg,
+                             corner_radius=4).pack(side="left",
+                                                    padx=(2, 0))
 
             # 右侧按钮：✕ 最右
             ctk.CTkButton(
@@ -474,7 +425,7 @@ class DistributeTab(ctk.CTkFrame):
                 else "dir" if "dir" in item else "pattern")
         rel = item.get(kind, "")
         tags = item.get("tags", [])
-        base = Path(self._source_dir or self._plugin_dir or ".")
+        base = Path(self._plugin_dir or ".")
         is_file = (kind == "path")
         pending: list[Optional[str]] = [None]  # 重选后的相对路径
         result: list = []
@@ -529,28 +480,22 @@ class DistributeTab(ctk.CTkFrame):
                           command=_open_selector).pack(side="right",
                                                        padx=(6, 0))
 
-        # ---- 标签下拉 ----
-        tag_row = ctk.CTkFrame(win, fg_color="transparent")
-        tag_row.pack(fill="x", padx=16, pady=(14, 0))
-        ctk.CTkLabel(tag_row, text="标签", width=56,
-                     anchor="w").pack(side="left")
-        cur_label = ("入口" if "entry" in tags
-                     else "依赖" if "deps" in tags else "其它")
-        values = ["入口", "依赖", "其它"] if is_file else ["依赖", "其它"]
-        if cur_label not in values:
-            cur_label = "其它"
-        tag_menu = ctk.CTkOptionMenu(tag_row, width=220, values=values)
-        tag_menu.set(cur_label)
-        tag_menu.pack(side="left")
-        if not is_file:
-            ctk.CTkLabel(tag_row, text="（入口必须是单个文件）",
-                         font=ctk.CTkFont(size=10),
-                         text_color="gray").pack(side="left", padx=(8, 0))
+        # ---- 标签（仅文件可标入口；目录/规则无标签）----
+        if is_file:
+            tag_row = ctk.CTkFrame(win, fg_color="transparent")
+            tag_row.pack(fill="x", padx=16, pady=(14, 0))
+            ctk.CTkLabel(tag_row, text="标签", width=56,
+                         anchor="w").pack(side="left")
+            cur_label = "入口" if "entry" in tags else "其它"
+            tag_menu = ctk.CTkOptionMenu(tag_row, width=220,
+                                         values=["入口", "其它"])
+            tag_menu.set(cur_label)
+            tag_menu.pack(side="left")
 
         def _ok() -> None:
-            t = tag_menu.get()
-            new_tags = (["entry"] if t == "入口"
-                        else ["deps"] if t == "依赖" else [])
+            new_tags: list[str] = []
+            if is_file and tag_menu.get() == "入口":
+                new_tags = ["entry"]
             result[:] = [pending[0], new_tags]
             win.destroy()
 
@@ -644,11 +589,6 @@ class DistributeTab(ctk.CTkFrame):
             if self._on_error_cleared:
                 self._on_error_cleared()  # 级联清除 tab 标题高亮
 
-    def set_source_dir(self, d: str) -> None:
-        self._source_dir = d
-        self._refresh_item_list()
-        self._refresh_preview()
-
     # ------------------------------------------------------------------
     # 预览
     # ------------------------------------------------------------------
@@ -668,10 +608,11 @@ class DistributeTab(ctk.CTkFrame):
             lines.append(f"  {plugin_name}/  ← 文件夹（调试）")
         else:
             lines.append(f"  {plugin_name}.zip  ← 分发包")
-        lines.append(f"    ├── manifest.json")
 
+        # 树行：先收集再绘制——最后一行用 L 形转角（└──），其余用 ├──
+        tree = ["    ├── manifest.json"]
         b = self._builder()
-        workdir = Path(self._source_dir or self._plugin_dir or ".")
+        workdir = Path(self._plugin_dir or ".")
         if b is not None:
             for item in b.items():
                 kind = ("path" if "path" in item
@@ -683,11 +624,14 @@ class DistributeTab(ctk.CTkFrame):
                     names = [Path(m).name for m in matched[:10]]
                     extra = (f"…共 {len(matched)} 个" if len(matched) > 10
                              else "")
-                    lines.append(f"    ├── {rel}（规则）→ {', '.join(names)} {extra}")
+                    tree.append(
+                        f"    ├── {rel}（规则）→ {', '.join(names)} {extra}")
                 else:
                     mark = " ← 入口" if is_entry else ""
-                    lines.append(f"    ├── {rel}{mark}")
-        lines.append(f"    └── ...")
+                    tree.append(f"    ├── {rel}{mark}")
+        if tree:
+            tree[-1] = tree[-1].replace("├──", "└──", 1)
+        lines.extend(tree)
 
         self._preview.configure(state="normal")
         self._preview.delete("1.0", "end")

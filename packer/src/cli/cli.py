@@ -71,7 +71,6 @@ def _make_ctx(pm: ProjectManager, plugin_dir: str, logger: Logger,
     """从 project.json 组装 BuildContext（只读）。"""
     project = pm.read_project()
     producer_id = project.get("compile_system", "")
-    source_dir = pm.to_absolute(project.get("source_dir", "")) or plugin_dir
     out_cfg = project.get("builder", {})
     output_dir = (pm.to_absolute(out_cfg.get("output_dir", ""))
                   or str(Path(plugin_dir) / "output"))
@@ -89,7 +88,7 @@ def _make_ctx(pm: ProjectManager, plugin_dir: str, logger: Logger,
         producer_cfg = {}
     return BuildContext(
         plugin_dir=Path(plugin_dir),
-        source_dir=Path(source_dir),
+        source_dir=Path(plugin_dir),
         output_dir=Path(output_dir),
         plugin_name=Path(plugin_dir).name,
         producer_id=producer_id,

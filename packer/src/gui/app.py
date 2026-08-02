@@ -46,8 +46,6 @@ class App(ctk.CTk):
 
         # -- state --
         self._plugin_dir: Optional[str] = None
-        self._source_dir: Optional[str] = None
-        self._source_auto = True
         self._output_dir: Optional[str] = None
         self._output_auto = True
         self._pm: Optional[ProjectManager] = None
@@ -82,8 +80,6 @@ class App(ctk.CTk):
 
         self._dist_view = DistributeTab(
             self._dist_tab,
-            on_select_source=self._select_source_dir,
-            on_reset_source=self._reset_source_dir,
             on_fill_builder=self._fill_builder_clicked,
             on_error_cleared=self._on_dist_errors_cleared)
         self._dist_view.pack(fill="both", expand=True)
@@ -191,30 +187,8 @@ class App(ctk.CTk):
             btn.pack_forget()
 
     def _on_proc_changed(self) -> None:
-        """编译设置变更（ProducerTab 回调）：刷新源码目录显示。"""
-        self._push_source_display()
-
-    def _load_source_dir_state(self) -> None:
-        """从顶层 source_dir 加载项目根锚点并刷新视图显示。
-
-        未设置时回退插件目录。
-        """
-        if not self._pm or not self._plugin_dir:
-            return
-        stored = self._pm.get_field("source_dir")
-        self._source_dir = (self._pm.to_absolute(stored) if stored
-                            else self._plugin_dir)
-        self._source_auto = not stored
-        self._dist_view.set_source_dir(self._source_dir)
-        self._push_source_display()
-
-    def _push_source_display(self) -> None:
-        """向构建页推送项目根显示。"""
-        if not self._pm or not self._plugin_dir:
-            return
-        stored = self._pm.get_field("source_dir")
-        path = self._pm.to_absolute(stored) if stored else self._plugin_dir
-        self._dist_view.set_source_display(_norm(path), not stored)
+        """编译设置变更（ProducerTab 回调）。"""
+        pass
 
     # ------------------------------------------------------------------
     # bottom bar
@@ -238,31 +212,6 @@ class App(ctk.CTk):
     # ------------------------------------------------------------------
     # directory selection
     # ------------------------------------------------------------------
-
-    def _select_source_dir(self) -> None:
-        """构建页项目根行的选择回调（顶层 source_dir 持久化）。"""
-        if not self._plugin_dir:
-            return
-        d = filedialog.askdirectory(title="选择项目根/收集根")
-        if not d:
-            return
-        self._source_dir = d
-        self._source_auto = False
-        if self._pm:
-            self._pm.set_field("source_dir", self._pm.to_relative(d))
-        self._dist_view.set_source_dir(self._source_dir)
-        self._push_source_display()
-
-    def _reset_source_dir(self) -> None:
-        """重置项目根（回插件目录）。"""
-        if not self._plugin_dir:
-            return
-        self._source_dir = self._plugin_dir
-        self._source_auto = True
-        if self._pm:
-            self._pm.set_field("source_dir", "")
-        self._dist_view.set_source_dir(self._plugin_dir)
-        self._push_source_display()
 
     def _select_output_dir(self) -> None:
         d = filedialog.askdirectory(title="选择输出目录")
@@ -314,7 +263,7 @@ class App(ctk.CTk):
             else ("gray10", "gray90"))
         # 视图内目录行红框复位
         self._dist_view.clear_errors()
-        self._push_source_display()
+
         # 信息页必填字段红框复位（恢复默认灰边）
         self._info_view.reset_field_borders()
         # Reset tab colors
@@ -453,7 +402,7 @@ class App(ctk.CTk):
         plugin_dir = Path(self._plugin_dir or ".")
         return BuildContext(
             plugin_dir=plugin_dir,
-            source_dir=Path(self._source_dir or self._plugin_dir or "."),
+            source_dir=Path(self._plugin_dir or "."),
             output_dir=Path(self._output_dir) if self._output_dir else plugin_dir / "output",
             plugin_name=plugin_dir.name,
             producer_id=self._producer_view.get_producer_id(),
@@ -633,7 +582,7 @@ class App(ctk.CTk):
         self._dist_view.set_plugin_dir(d, self._pm)
 
         # Source dir（顶层 source_dir；未设置回退插件目录）
-        self._load_source_dir_state()
+
 
         # Enable output dir row
         for b in self._out_btns:
@@ -678,4 +627,4 @@ class App(ctk.CTk):
             self._producer_view.set_plugin_dir(self._plugin_dir, self._pm)
             self._dist_view.set_plugin_dir(self._plugin_dir, self._pm)
             self._dist_view.refresh_preview(self._output_dir)
-            self._load_source_dir_state()
+    

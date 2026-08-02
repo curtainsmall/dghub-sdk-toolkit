@@ -40,7 +40,7 @@ with dghub_sdk.Agent() as agent:
 - 两阶段构建 — compile 编译（Python uv+PyInstaller / 自定义命令 / 无）→ 统一 build 步骤；Python 编译入口由用户在 `pyproject.toml` 的 `[tool.dghub].entry` 中声明，Packer 直接读取，无需在 GUI 重复填写
 - 插件信息编辑 — 可视化填写元信息与 `config_schema`，产物 `manifest.json` 构建时自动生成
 - 依赖管理 — 依赖由项目自身清单（`pyproject.toml`）声明，自动下载并打进自包含 exe（onedir）
-- 打包内容 — 文件 / 目录 / 规则三种条目，`入口` / `依赖` 标签标记，双击条目查看完整路径 / 重选 / 改标签；校验错误条目级红框高亮
+- 打包内容 — 文件 / 目录 / 规则三种条目，`入口` 标记，双击条目查看完整路径 / 重选 / 改标签；校验错误条目级红框高亮
 - 发布 — `.zip`（分发）或文件夹（调试），Python 项目自动构建为独立 exe
 
 ### 下载
