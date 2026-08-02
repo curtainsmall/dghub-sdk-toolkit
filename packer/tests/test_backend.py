@@ -1,4 +1,4 @@
-﻿"""backend 单元测试：配置迁移 / Builder / 编译 / 管线 / 打包。"""
+"""backend 单元测试：配置迁移 / Builder / 编译 / 管线 / 打包。"""
 
 import json
 from pathlib import Path
@@ -8,7 +8,7 @@ import pytest
 from backend.builder import BuildError, evaluate_pattern
 from backend.packaging import package_plugin, cleanup_intermediates
 from backend.pipeline import fill_builder, run_build, validate
-from backend.producers import PRODUCERS, get_producer
+from backend.compilers import COMPILERS, get_compiler
 from backend.project_manager import UnsupportedFormatError
 
 
@@ -192,34 +192,34 @@ def test_evaluate_pattern(make_project):
 
 
 # ---------------------------------------------------------------------------
-# producers：PythonProducer / CommandProducer
+# compilers：PythonCompiler / CommandCompiler
 # ---------------------------------------------------------------------------
 
 
-def test_python_producer_probe(tmp_path):
+def test_python_compiler_probe(tmp_path):
     root = tmp_path / "p"
     root.mkdir()
     (root / "pyproject.toml").write_text(
         "[tool.dghub]\nentry='src/main.py'\n")
-    py = get_producer("python")
+    py = get_compiler("python")
     assert py.probe(root) == {"manifest": "pyproject.toml",
                               "include_sdk": True}
     # 无 pyproject → None
     assert py.probe(tmp_path / "empty") is None
 
 
-def test_python_producer_deduce(make_project):
-    py = get_producer("python")
+def test_python_compiler_deduce(make_project):
+    py = get_compiler("python")
     assert py.deduce({"manifest": "pyproject.toml"}, "my-plugin") == [
         {"path": "my-plugin.exe", "tags": ["entry"], "derived": True},
         {"dir": "_internal", "derived": True}]
     assert py.deduce({"manifest": ""}, "my-plugin") is None
-    cmd = get_producer("command")
+    cmd = get_compiler("command")
     assert cmd.deduce({"compile": "x"}, "my-plugin") is None
 
 
-def test_python_producer_manifest_known():
-    py = get_producer("python")
+def test_python_compiler_manifest_known():
+    py = get_compiler("python")
     # 仅 pyproject.toml（唯一可声明 [tool.dghub].entry 的清单）
     assert py.is_known_manifest("pyproject.toml")
     for name in ("setup.py", "setup.cfg", "requirements.txt",
@@ -227,9 +227,9 @@ def test_python_producer_manifest_known():
         assert not py.is_known_manifest(name), name
 
 
-def test_python_producer_validate(make_project):
+def test_python_compiler_validate(make_project):
     pm, _, plugin_dir = make_project()
-    py = get_producer("python")
+    py = get_compiler("python")
     # 缺 manifest → 错误
     assert py.validate({}, plugin_dir)
     # 不可识别清单 → 错误
@@ -249,10 +249,10 @@ def test_python_producer_validate(make_project):
     assert py.validate(cfg, plugin_dir) == []
 
 
-def test_producer_registry():
-    assert set(PRODUCERS) == {"python", "command"}
-    assert get_producer("") is None
-    assert get_producer("unknown") is None
+def test_compiler_registry():
+    assert set(COMPILERS) == {"python", "command"}
+    assert get_compiler("") is None
+    assert get_compiler("unknown") is None
 
 
 # ---------------------------------------------------------------------------
@@ -262,8 +262,8 @@ def test_producer_registry():
 
 def test_validate_required(make_project, make_ctx):
     pm, b, plugin_dir = make_project()
-    ctx, _ = make_ctx(pm, b, plugin_dir, producer_id="python",
-                      producer_cfg={"manifest": "", "include_sdk": True})
+    ctx, _ = make_ctx(pm, b, plugin_dir, compile_system="python",
+                      compile_cfg={"manifest": "", "include_sdk": True})
     errors = validate(ctx)
     # 编译必要字段（manifest 缺失）+ Builder 必要条目（entry 缺失）
     assert any("依赖清单" in e for e in errors)
@@ -277,9 +277,9 @@ def test_fill_builder_only_fills_empty(make_project, make_ctx):
     pm, b, plugin_dir = make_project()
     pm.set_field("compile_system", "python")
     pm.set_field("manifest", "pyproject.toml")
-    ctx, _ = make_ctx(pm, b, plugin_dir, producer_id="python",
-                      producer_cfg={"manifest": "pyproject.toml",
-                                     "include_sdk": True})
+    ctx, _ = make_ctx(pm, b, plugin_dir, compile_system="python",
+                      compile_cfg={"manifest": "pyproject.toml",
+                                   "include_sdk": True})
     applied = fill_builder(ctx)
     assert applied and any("入口" in a for a in applied)
     assert b.entry_errors(plugin_dir) == []
@@ -293,11 +293,11 @@ def test_fill_builder_only_fills_empty(make_project, make_ctx):
     fill_builder(ctx)
     assert len(b.items()) == 2
     # 无编译 → None
-    ctx2, _ = make_ctx(pm, b, plugin_dir, producer_id="")
+    ctx2, _ = make_ctx(pm, b, plugin_dir, compile_system="")
     assert fill_builder(ctx2) is None
 
 
-def test_run_build_no_producer(make_project, make_ctx):
+def test_run_build_no_compile(make_project, make_ctx):
     """无编译（纯收集）路径：entry 产物 + 资源 → zip。"""
     pm, b, plugin_dir = make_project()
     (plugin_dir / "main.py").write_text("print('hi')\n")
@@ -357,8 +357,8 @@ def test_resolve_entry_exempt(make_project, make_ctx):
     assert any("missing.exe" in m for m in exc_info.value.errors)
 
 
-def test_run_build_command_producer(make_project, make_ctx, tmp_path):
-    """CommandProducer：compile 产出文件 → 收集。"""
+def test_run_build_command_compiler(make_project, make_ctx, tmp_path):
+    """CommandCompiler：compile 产出文件 → 收集。"""
     pm, b, plugin_dir = make_project()
     script = tmp_path / "gen.py"
     script.write_text(
@@ -371,11 +371,11 @@ def test_run_build_command_producer(make_project, make_ctx, tmp_path):
     (plugin_dir / "out").mkdir()
     (plugin_dir / "out" / "plugin.exe").write_bytes(b"exe")
     b.add_file("out/plugin.exe", ["entry"])
-    ctx, _ = make_ctx(pm, b, plugin_dir, producer_id="command",
-                      producer_cfg={"compile": f"python {script.as_posix()}",
-                                    "compile_dir": ""})
+    ctx, _ = make_ctx(pm, b, plugin_dir, compile_system="command",
+                      compile_cfg={"compile": f"python {script.as_posix()}",
+                                   "compile_dir": ""})
     ok = run_build(ctx, {"id": "t", "name": "t"})
-    assert ok is not None, "command producer build should succeed"
+    assert ok is not None, "command compiler build should succeed"
     import zipfile
     with zipfile.ZipFile(ok) as zf:
         assert "out/plugin.exe" in zf.namelist()

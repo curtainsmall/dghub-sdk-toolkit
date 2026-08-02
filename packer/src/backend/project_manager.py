@@ -1,14 +1,14 @@
-﻿""".dghub-sdk/ project configuration management.
+""".dghub-sdk/ project configuration management.
 
 project.json 为唯一配置文件（format_version 2，顶层平铺 + builder 节）::
 
     {
       "format_version": 2,
       "compile_system": "python",      # 编译选择：""（无）/ "python" / "command"
-      "compile": "",            # CommandProducer 设置（compile_system="command" 时必填）
-      "compile_dir": "",             # CommandProducer 执行目录（空 = 项目根）
-      "manifest": "",             # PythonProducer 设置（compile_system="python" 时必填）
-      "include_sdk": true,        # PythonProducer 选项：是否打包 dghub-sdk
+      "compile": "",            # CommandCompiler 设置（compile_system="command" 时必填）
+      "compile_dir": "",             # CommandCompiler 执行目录（空 = 项目根）
+      "manifest": "",             # PythonCompiler 设置（compile_system="python" 时必填）
+      "include_sdk": true,        # PythonCompiler 选项：是否打包 dghub-sdk
       "builder": {
         "files": [],              # 统一文件选择列表：[{"path"|"dir"|"pattern", "tags"}]
         "no_zip": false,          # 发布形态：false = zip（默认）；true = folder
@@ -19,9 +19,9 @@ project.json 为唯一配置文件（format_version 2，顶层平铺 + builder �
 - 路径（manifest / compile_dir / output_dir）存相对插件目录的路径，跨盘符时回退绝对路径
 - 未知键在读-改-写时保留，不丢数据
 - 旧格式（format_version 1，build_systems 命名空间）执行破坏性迁移：
-  字段归位（producer 按 manifest/compile 推断、extra_files 去 dest 入
+  字段归位（compile_system 按 manifest/compile 推断、extra_files 去 dest 入
   builder.files、target 映射 no_zip），并删除旧 deps.json（manifest.json 不受影响）
-- 编译入口（entry）为 Python 编译专属输入，由 PythonProducer 从
+- 编译入口（entry）为 Python 编译专属输入，由 PythonCompiler 从
   pyproject.toml 的 [tool.dghub].entry 现读，不入 project.json
 """
 
@@ -219,7 +219,7 @@ class ProjectManager:
         data = dict(_PROJECT_DEFAULTS)
         data.update({
             "format_version": _SUPPORTED_FORMAT,
-            # v1 entry/source_dir 弃用：编译入口由 PythonProducer 从 pyproject 现读，
+            # v1 entry/source_dir 弃用：编译入口由 PythonCompiler 从 pyproject 现读，
             # 构建根统一为插件目录
             "compile": gen.get("pre_build", ""),        # v1 旧键 pre_build
             "compile_dir": gen.get("exec_dir", ""),     # v1 旧键 exec_dir

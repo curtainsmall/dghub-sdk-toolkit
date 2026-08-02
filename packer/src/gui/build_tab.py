@@ -1,4 +1,4 @@
-﻿"""Build tab — 打包内容与发布选项（纯 GUI 工具的单视图构建页）。
+"""Build tab — 打包内容与发布选项（纯 GUI 工具的单视图构建页）。
 
 - 打包内容：统一文件选择列表（文件 / 目录 / 规则三种条目，标签标记入口）
   +「添加文件」/「添加目录」（常规系统选择器）+「添加规则」+「从编译填充」
@@ -32,7 +32,7 @@ _TAG_STYLES = {
 
 
 
-class DistributeTab(ctk.CTkFrame):
+class BuildTab(ctk.CTkFrame):
     """构建页：项目根 / 入口 / 打包内容 / 发布选项 / 预览。"""
 
     def __init__(self, master: Any,

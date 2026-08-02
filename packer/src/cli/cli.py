@@ -1,4 +1,4 @@
-﻿"""build-only CLI：读 .dghub-sdk/ 构建插件（CI 专用，只读配置）。
+"""build-only CLI：读 .dghub-sdk/ 构建插件（CI 专用，只读配置）。
 
 - 唯一命令 ``build [目录]``：读 project.json + manifest.json → 两阶段构建 → 出包
 - 无任何配置命令（init/config/fill/apply/export）——项目配置唯一来源 = GUI
@@ -70,33 +70,33 @@ def _make_ctx(pm: ProjectManager, plugin_dir: str, logger: Logger,
               pypi_index: str) -> BuildContext:
     """从 project.json 组装 BuildContext（只读）。"""
     project = pm.read_project()
-    producer_id = project.get("compile_system", "")
+    compile_system = project.get("compile_system", "")
     out_cfg = project.get("builder", {})
     output_dir = (pm.to_absolute(out_cfg.get("output_dir", ""))
                   or str(Path(plugin_dir) / "output"))
-    if producer_id == "python":
-        producer_cfg = {
+    if compile_system == "python":
+        compile_cfg = {
             "manifest": project.get("manifest", ""),
             "include_sdk": bool(project.get("include_sdk", True)),
         }
-    elif producer_id == "command":
-        producer_cfg = {
+    elif compile_system == "command":
+        compile_cfg = {
             "compile": project.get("compile", ""),
             "compile_dir": project.get("compile_dir", ""),
         }
     else:
-        producer_cfg = {}
+        compile_cfg = {}
     return BuildContext(
         plugin_dir=Path(plugin_dir),
         source_dir=Path(plugin_dir),
         output_dir=Path(output_dir),
         plugin_name=Path(plugin_dir).name,
-        producer_id=producer_id,
+        compile_system=compile_system,
         builder=Builder(pm),
         log=logger,
         pm=pm,
         pypi_index=pypi_index,
-        producer_cfg=producer_cfg,
+        compile_cfg=compile_cfg,
     )
 
 

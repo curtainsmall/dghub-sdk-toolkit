@@ -1,4 +1,4 @@
-﻿"""pytest 共享夹具：路径注入、项目工厂与 BuildContext 组装。"""
+"""pytest 共享夹具：路径注入、项目工厂与 BuildContext 组装。"""
 
 import sys
 from pathlib import Path
@@ -39,8 +39,8 @@ def make_ctx(tmp_path: Path):
     """BuildContext 工厂：自动创建插件/源码/输出目录并收集日志。"""
 
     def _make(pm: ProjectManager, builder: Builder,
-              plugin_dir: Path, producer_id: str = "",
-              producer_cfg: dict | None = None,
+              plugin_dir: Path, compile_system: str = "",
+              compile_cfg: dict | None = None,
               pypi_index: str = "") -> tuple[BuildContext, list[str]]:
         output_dir = tmp_path / "output"
         output_dir.mkdir(exist_ok=True)
@@ -50,12 +50,12 @@ def make_ctx(tmp_path: Path):
             source_dir=plugin_dir,
             output_dir=output_dir,
             plugin_name=plugin_dir.name,
-            producer_id=producer_id,
+            compile_system=compile_system,
             builder=builder,
             log=Logger(lambda text, level: logs.append(text)),
             pm=pm,
             pypi_index=pypi_index,
-            producer_cfg=producer_cfg or {},
+            compile_cfg=compile_cfg or {},
         )
         return ctx, logs
 

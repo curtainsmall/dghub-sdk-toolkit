@@ -1,4 +1,4 @@
-﻿"""CLI 单元测试：build-only（只读构建，无配置命令）。"""
+"""CLI 单元测试：build-only（只读构建，无配置命令）。"""
 
 import json
 import zipfile

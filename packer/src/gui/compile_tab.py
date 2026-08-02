@@ -1,8 +1,8 @@
-﻿"""Producer tab — compile 编译选择与设置（下拉单选 + 字段联动）。
+"""Compile tab — compile 编译选择与设置（下拉单选 + 字段联动）。
 
 编译由 ``compile_system`` 字段显式单选：""（无）/ "python" / "command"。
 选中后显示对应设置字段；一切语言相关解析（清单识别、[tool.dghub].entry）
-在编译内（backend.producers），本页只做 UI 呈现与持久化。
+在编译内（backend.compilers），本页只做 UI 呈现与持久化。
 """
 
 import subprocess
@@ -13,8 +13,8 @@ from typing import Any, Callable, Optional
 
 import customtkinter as ctk
 
-from backend.exe_builder import _get_python_exe
-from backend.producers import PRODUCERS, PRODUCER_CHOICES, get_producer
+from backend.py_compiler import _get_python_exe
+from backend.compilers import COMPILERS, COMPILER_CHOICES, get_compiler
 from backend.project_manager import ProjectManager
 from backend.winflags import _NO_WINDOW
 from gui.widgets import ToolTip
@@ -23,7 +23,7 @@ from gui.widgets import ToolTip
 _LABEL_W = 92
 
 
-class ProducerTab(ctk.CTkFrame):
+class CompileTab(ctk.CTkFrame):
     """编译页：下拉单选 + 对应设置字段（Python / Command / 无）。"""
 
     def __init__(self, master: Any,
@@ -38,10 +38,10 @@ class ProducerTab(ctk.CTkFrame):
         self._enabled = False
 
         # 状态变量
-        self._producer_var = ctk.StringVar(value="")
+        self._compile_system_var = ctk.StringVar(value="")
         self._manifest_var = ctk.StringVar(value="")
         self._include_sdk_var = ctk.BooleanVar(value=True)
-        self._compile_var = ctk.StringVar(value="")
+        self._compile_var = ctk.StringVar(value="")   # 编译命令字符串
         self._compile_dir = ""  # 执行目录（绝对路径；空 = 项目根）
 
         self._build_ui()
@@ -74,8 +74,8 @@ class ProducerTab(ctk.CTkFrame):
                      font=ctk.CTkFont(weight="bold")).grid(
             row=0, column=0, padx=(0, 5), sticky="w")
         self._proc_menu = ctk.CTkOptionMenu(
-            row, width=220, values=[label for _, label in PRODUCER_CHOICES],
-            command=self._on_producer_changed)
+            row, width=220, values=[label for _, label in COMPILER_CHOICES],
+            command=self._on_compile_changed)
         self._proc_menu.grid(row=0, column=1, sticky="w", padx=5)
         self._controls.append(self._proc_menu)
         self._proc_hint = ctk.CTkLabel(
@@ -84,7 +84,7 @@ class ProducerTab(ctk.CTkFrame):
             justify="left")
         self._proc_hint.grid(row=0, column=2, sticky="w", padx=(10, 0))
 
-        # ---- (None) 设置区（producer="" 时显示）----
+        # ---- (None) 设置区（compile_system="" 时显示）----
         self._none_frame = ctk.CTkFrame(self, fg_color="transparent")
         self._none_frame.grid(row=1, column=0, columnspan=2, sticky="ew",
                               padx=10, pady=(10, 0))
@@ -94,7 +94,7 @@ class ProducerTab(ctk.CTkFrame):
             anchor="w", wraplength=700, justify="left").pack(
             anchor="w", padx=4, pady=8)
 
-        # ---- Python 设置区（producer="python" 时显示）----
+        # ---- Python 设置区（compile_system="python" 时显示）----
         self._py_frame = ctk.CTkFrame(self, fg_color="transparent")
         self._py_frame.grid(row=1, column=0, columnspan=2, sticky="ew",
                             padx=10, pady=(10, 0))
@@ -126,7 +126,7 @@ class ProducerTab(ctk.CTkFrame):
             text_color="gray", anchor="w")
         self._pyinstaller_hint.grid(row=2, column=1, sticky="w", padx=5)
 
-        # ---- Command 设置区（producer="command" 时显示）----
+        # ---- Command 设置区（compile_system="command" 时显示）----
         self._cmd_frame = ctk.CTkFrame(self, fg_color="transparent")
         self._cmd_frame.grid(row=1, column=0, columnspan=2, sticky="ew",
                              padx=10, pady=(10, 0))
@@ -177,38 +177,38 @@ class ProducerTab(ctk.CTkFrame):
     # 编译下拉联动
     # ------------------------------------------------------------------
 
-    def _producer_id(self) -> str:
+    def _compile_id(self) -> str:
         label = self._proc_menu.get()
-        for pid, plabel in PRODUCER_CHOICES:
-            if plabel == label:
-                return pid
+        for cid, clabel in COMPILER_CHOICES:
+            if clabel == label:
+                return cid
         return ""
 
-    def _on_producer_changed(self, label: str) -> None:
+    def _on_compile_changed(self, label: str) -> None:
         if self._loading:
             return
         self._update_visibility()
         if self._pm:
-            self._pm.set_field("compile_system", self._producer_id())
+            self._pm.set_field("compile_system", self._compile_id())
         self._check_pyinstaller_bg()  # Python 选中时后台预检
         if self._on_changed:
             self._on_changed()
 
     def _update_visibility(self) -> None:
         """按编译系统选项整区切换设置区（None / Python / Command）。"""
-        pid = self._producer_id()
+        cid = self._compile_id()
         self._py_frame.grid_remove()
         self._cmd_frame.grid_remove()
         self._none_frame.grid_remove()
-        if pid == "python":
+        if cid == "python":
             self._py_frame.grid()
-        elif pid == "command":
+        elif cid == "command":
             self._cmd_frame.grid()
         else:
             self._none_frame.grid()
-        proc = get_producer(pid)
+        comp = get_compiler(cid)
         self._proc_hint.configure(
-            text=proc.description if proc else "不执行 compile，直接收集打包内容")
+            text=comp.description if comp else "不执行 compile，直接收集打包内容")
 
     def _update_exec_state(self) -> None:
         """执行目录行始终可用——Command 区可见即 command 编译模式。"""
@@ -233,9 +233,9 @@ class ProducerTab(ctk.CTkFrame):
         rel = self._pm.to_relative(f) if self._pm else f
         self._manifest_var.set(rel)
         # 类型标注：可识别 = 绿色 ✓；否则浅红警示
-        proc = get_producer("python")
+        comp = get_compiler("python")
         name = Path(f).name
-        if proc is not None and proc.is_known_manifest(name):
+        if comp is not None and comp.is_known_manifest(name):
             self._manifest_label.configure(text=f"✓ {name}", text_color="green")
         else:
             self._manifest_label.configure(
@@ -272,7 +272,7 @@ class ProducerTab(ctk.CTkFrame):
     # ------------------------------------------------------------------
 
     def _check_pyinstaller_bg(self) -> None:
-        if self._producer_id() != "python":
+        if self._compile_id() != "python":
             return
         threading.Thread(target=self._check_pyinstaller_work,
                          daemon=True).start()
@@ -315,9 +315,9 @@ class ProducerTab(ctk.CTkFrame):
             self._loading = True
             try:
                 project = self._pm.read_project()
-                pid = project.get("compile_system", "")
-                label = next((pl for p, pl in PRODUCER_CHOICES if p == pid),
-                             PRODUCER_CHOICES[0][1])
+                cid = project.get("compile_system", "")
+                label = next((cl for c, cl in COMPILER_CHOICES if c == cid),
+                             COMPILER_CHOICES[0][1])
                 self._proc_menu.set(label)
                 self._manifest_var.set(project.get("manifest", ""))
                 self._include_sdk_var.set(
@@ -330,9 +330,9 @@ class ProducerTab(ctk.CTkFrame):
                 # 清单标注
                 manifest = project.get("manifest", "")
                 if manifest:
-                    proc = get_producer("python")
+                    comp = get_compiler("python")
                     name = Path(manifest).name
-                    if proc is not None and proc.is_known_manifest(name):
+                    if comp is not None and comp.is_known_manifest(name):
                         self._manifest_label.configure(
                             text=f"✓ {name}", text_color="green")
                     else:
@@ -353,7 +353,7 @@ class ProducerTab(ctk.CTkFrame):
         if not self._pm:
             return
         project = self._pm.read_project()
-        project["compile_system"] = self._producer_id()
+        project["compile_system"] = self._compile_id()
         project["manifest"] = self._manifest_var.get()
         project["include_sdk"] = self._include_sdk_var.get()
         project["compile"] = self._compile_var.get()
@@ -361,16 +361,16 @@ class ProducerTab(ctk.CTkFrame):
                                if self._compile_dir else "")
         self._pm.write_project(project)
 
-    def get_producer_id(self) -> str:
-        return self._producer_id()
+    def get_compile_system(self) -> str:
+        return self._compile_id()
 
-    def get_producer_cfg(self) -> dict[str, Any]:
+    def get_compile_cfg(self) -> dict[str, Any]:
         """供 BuildContext 组装的编译设置字段。"""
-        pid = self._producer_id()
-        if pid == "python":
+        cid = self._compile_id()
+        if cid == "python":
             return {"manifest": self._manifest_var.get(),
                     "include_sdk": self._include_sdk_var.get()}
-        if pid == "command":
+        if cid == "command":
             return {"compile": self._compile_var.get(),
                     "compile_dir": self._compile_dir}
         return {}

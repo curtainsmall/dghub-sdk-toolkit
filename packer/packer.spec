@@ -17,18 +17,18 @@ SDK = ROOT.parent / "sdk" / "python"
 
 # 各层 hidden-import（包结构下仍显式列出以降低漏收风险）
 _BACKEND = [
-    "backend.project_manager", "backend.producers", "backend.builder",
-    "backend.pipeline", "backend.exe_builder", "backend.packaging",
+    "backend.project_manager", "backend.compilers", "backend.builder",
+    "backend.pipeline", "backend.py_compiler", "backend.packaging",
     "backend.build_control", "backend.logbus", "backend.manifest_validator",
     "backend.settings_store", "backend.winflags", "backend._version",
 ]
 _GUI = [
-    "gui.app", "gui.manifest_tab", "gui.producer_tab", "gui.distribute_tab",
+    "gui.app", "gui.manifest_tab", "gui.compile_tab", "gui.build_tab",
     "gui.settings_tab", "gui.log_tab", "gui.widgets",
 ]
 _CLI = ["cli.cli"]
 
-# SDK 作为数据随包（exe_builder._find_sdk_path 在冻结态读 _MEIPASS/dghub_sdk）
+# SDK 作为数据随包（py_compiler._find_sdk_path 在冻结态读 _MEIPASS/dghub_sdk）
 _DATAS = [(str(SDK / "dghub_sdk"), "dghub_sdk")]
 _PATHEX = [str(SRC), str(SDK)]
 

@@ -1,11 +1,11 @@
-﻿"""compile 编译体系：抽象契约 + 两个实现 + 注册表。
+"""compile 编译体系：抽象契约 + 两个实现 + 注册表。
 
 编译 = 阶段 1（把源码变成可打包产物）的可插拔实现，由 project.json 的
 ``compile_system`` 字段显式单选（"" 无 / "python" / "command"）。一切语言相关
 解析（清单识别、[tool.dghub].entry 读取、probe、deduce）都在编译内，
 GUI 与管线不内置任何语言知识。
 
-抽象契约（Producer 九项能力）：身份、设置字段、启用、清单识别、
+抽象契约（Compiler 九项能力）：身份、设置字段、启用、清单识别、
 探测、预检、校验、推导、执行。编译不推断 Builder（deduce 只是建议）、
 编译入口（[tool.dghub].entry）由 Python 编译从清单现读、不持久化、
 不接触 GUI。
@@ -19,13 +19,13 @@ from pathlib import Path
 from typing import Any, Optional
 
 from backend.build_control import Canceller
-from backend.exe_builder import build_plugin_exe
+from backend.py_compiler import build_plugin_exe
 from backend.logbus import Logger
 from backend.winflags import _NO_WINDOW
 
 
 @dataclass
-class ProducerContext:
+class CompilerContext:
     """编译运行时上下文（run 时由管线组装）。"""
 
     plugin_dir: Path
@@ -72,7 +72,7 @@ def run_logged(cmd: Any, logger: Logger, source: str,
     return proc.returncode == 0
 
 
-class Producer:
+class Compiler:
     """compile 编译抽象契约（所有编译共有的接口形状）。"""
 
     id = ""
@@ -83,7 +83,7 @@ class Producer:
     fields: dict[str, dict[str, Any]] = {}
 
     def enabled(self, cfg: dict[str, Any]) -> bool:
-        """由显式 producer 选择字段决定；缺必要字段由 validate 兜底。"""
+        """由显式 compile_system 选择字段决定；缺必要字段由 validate 兜底。"""
         return bool(cfg)
 
     def is_known_manifest(self, filename: str) -> bool:
@@ -113,16 +113,16 @@ class Producer:
         """检查设置是否足以推导 Builder 条目；返回建议条目或 None。"""
         return None
 
-    def run(self, ctx: ProducerContext) -> bool:
+    def run(self, ctx: CompilerContext) -> bool:
         """执行阶段 1 工作，产出文件；失败返回 False。"""
         raise NotImplementedError
 
 
 # ---------------------------------------------------------------------------
-# CommandProducer：用户自定义命令
+# CommandCompiler：用户自定义命令
 # ---------------------------------------------------------------------------
 
-class CommandProducer(Producer):
+class CommandCompiler(Compiler):
     """执行用户 shell 命令产出任意文件；产物位置不可预测，
     Builder 条目由用户声明（deduce 恒 None）。"""
 
@@ -146,7 +146,7 @@ class CommandProducer(Producer):
                 plugin_name: str = "") -> Optional[list[dict[str, Any]]]:
         return None
 
-    def run(self, ctx: ProducerContext) -> bool:
+    def run(self, ctx: CompilerContext) -> bool:
         cmd = (ctx.cfg.get("compile") or "").strip()
         if not cmd:
             ctx.log.error("编译命令为空")
@@ -158,14 +158,14 @@ class CommandProducer(Producer):
 
 
 # ---------------------------------------------------------------------------
-# PythonProducer：uv 依赖下载 + PyInstaller onedir
+# PythonCompiler：uv 依赖下载 + PyInstaller onedir
 # ---------------------------------------------------------------------------
 
 # uv 可识别的依赖清单类型
 _PY_MANIFESTS = ("pyproject.toml", "setup.py", "setup.cfg", "requirements*.txt")
 
 
-class PythonProducer(Producer):
+class PythonCompiler(Compiler):
     """uv 按清单下载依赖到 .deps → PyInstaller onedir 打包（含 SDK 可选）。
 
     产物约定：``out_dir/<name>/`` onedir 树（固定位置，管线整树收集）。
@@ -251,7 +251,7 @@ class PythonProducer(Producer):
             {"dir": "_internal", "derived": True},
         ]
 
-    def run(self, ctx: ProducerContext) -> bool:
+    def run(self, ctx: CompilerContext) -> bool:
         manifest = ctx.cfg.get("manifest", "")
         if not manifest:
             ctx.log.error("依赖清单为空")
@@ -330,21 +330,21 @@ def read_tool_dghub_entry(manifest: Path) -> str:
 # 注册表
 # ---------------------------------------------------------------------------
 
-PRODUCERS: dict[str, Producer] = {
-    "python": PythonProducer(),
-    "command": CommandProducer(),
+COMPILERS: dict[str, Compiler] = {
+    "python": PythonCompiler(),
+    "command": CommandCompiler(),
 }
 
 # 编译选项（GUI 下拉 / config 校验）：("" 无) 优先于具体编译
-PRODUCER_CHOICES: tuple[tuple[str, str], ...] = (
+COMPILER_CHOICES: tuple[tuple[str, str], ...] = (
     ("", "无"),
     ("python", "Python (uv + PyInstaller)"),
     ("command", "自定义命令"),
 )
 
 
-def get_producer(producer_id: str) -> Optional[Producer]:
+def get_compiler(compile_system: str) -> Optional[Compiler]:
     """按 id 取编译（空串或未知返回 None）。"""
-    if not producer_id:
+    if not compile_system:
         return None
-    return PRODUCERS.get(producer_id)
+    return COMPILERS.get(compile_system)

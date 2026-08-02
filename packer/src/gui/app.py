@@ -1,4 +1,4 @@
-﻿"""Main application window — cross-tab layout with top/bottom bars."""
+"""Main application window — cross-tab layout with top/bottom bars."""
 
 import datetime
 import threading
@@ -18,8 +18,8 @@ def _norm_dir(p: str) -> str:
 
 import customtkinter as ctk
 
-from gui.distribute_tab import DistributeTab
-from gui.producer_tab import ProducerTab
+from gui.build_tab import BuildTab
+from gui.compile_tab import CompileTab
 from backend.builder import BuildError, Builder
 from backend.pipeline import BuildContext, fill_builder, run_build, validate
 from backend.packaging import cleanup_intermediates
@@ -69,7 +69,7 @@ class App(ctk.CTk):
 
         # -- tabs --
         self._info_tab = self._tab_view.add("信息")
-        self._producer_tab = self._tab_view.add("编译")
+        self._compile_tab = self._tab_view.add("编译")
         self._dist_tab = self._tab_view.add("构建")
         self._settings_tab = self._tab_view.add("设置")
         self._log_tab = self._tab_view.add("日志")
@@ -79,11 +79,11 @@ class App(ctk.CTk):
             self._info_tab, on_field_edit=self._on_info_field_edit)
         self._info_view.pack(fill="both", expand=True)
 
-        self._producer_view = ProducerTab(
-            self._producer_tab, on_changed=self._on_proc_changed)
-        self._producer_view.pack(fill="both", expand=True)
+        self._compile_view = CompileTab(
+            self._compile_tab, on_changed=self._on_compile_changed)
+        self._compile_view.pack(fill="both", expand=True)
 
-        self._dist_view = DistributeTab(
+        self._dist_view = BuildTab(
             self._dist_tab,
             on_fill_builder=self._fill_builder_clicked,
             on_error_cleared=self._on_dist_errors_cleared)
@@ -191,8 +191,8 @@ class App(ctk.CTk):
         else:
             btn.pack_forget()
 
-    def _on_proc_changed(self) -> None:
-        """编译设置变更（ProducerTab 回调）。"""
+    def _on_compile_changed(self) -> None:
+        """编译设置变更（CompileTab 回调）。"""
         pass
 
     # ------------------------------------------------------------------
@@ -346,7 +346,7 @@ class App(ctk.CTk):
 
     def _validate_dist_tab(self) -> bool:
         """Validate 构建页（含编译页状态），一次性检测。Returns True if valid."""
-        self._producer_view.save_settings()
+        self._compile_view.save_settings()
         self._dist_view.save_settings()
         ctx = self._make_build_context()
         ok = True
@@ -358,8 +358,8 @@ class App(ctk.CTk):
             # 入口缺失不豁免 → 进入条目级高亮
             ctx.builder.resolve(
                 ctx.source_dir,
-                entry_exempt=bool(ctx.producer_cfg.get("compile")
-                                  or ctx.producer_cfg.get("manifest")))
+                entry_exempt=bool(ctx.compile_cfg.get("compile")
+                                  or ctx.compile_cfg.get("manifest")))
         except BuildError as exc:
             errors += exc.errors
         if errors:
@@ -410,14 +410,14 @@ class App(ctk.CTk):
             source_dir=Path(self._plugin_dir or "."),
             output_dir=Path(self._output_dir) if self._output_dir else plugin_dir / "output",
             plugin_name=plugin_dir.name,
-            producer_id=self._producer_view.get_producer_id(),
+            compile_system=self._compile_view.get_compile_system(),
             builder=Builder(self._pm) if self._pm else Builder(
                 ProjectManager(str(plugin_dir))),
             log=self._logger,
             pm=self._pm,
             pypi_index=self._settings_view.get_pypi_index(),
             canceller=self._canceller,
-            producer_cfg=self._producer_view.get_producer_cfg(),
+            compile_cfg=self._compile_view.get_compile_cfg(),
         )
 
     # ------------------------------------------------------------------
@@ -433,7 +433,7 @@ class App(ctk.CTk):
             except Exception:
                 pass
         self._info_view._set_enabled(not locked)
-        self._producer_view._set_enabled(not locked)
+        self._compile_view._set_enabled(not locked)
         self._dist_view._set_enabled(not locked)
 
     def _start_build(self) -> None:
@@ -498,7 +498,7 @@ class App(ctk.CTk):
             self._build_success = True
 
             # Step 2: save settings
-            self._producer_view.save_settings()
+            self._compile_view.save_settings()
             self._dist_view.save_settings()
             self._logger.detail("配置已保存")
 
@@ -583,7 +583,7 @@ class App(ctk.CTk):
 
         # Push to all tabs
         self._info_view.set_plugin_dir(d, self._pm)
-        self._producer_view.set_plugin_dir(d, self._pm)
+        self._compile_view.set_plugin_dir(d, self._pm)
         self._dist_view.set_plugin_dir(d, self._pm)
 
         # Source dir（顶层 source_dir；未设置回退插件目录）
@@ -616,7 +616,7 @@ class App(ctk.CTk):
         if not self._pm or not self._plugin_dir:
             self._logger.error("请先选择插件目录")
             return
-        self._producer_view.save_settings()
+        self._compile_view.save_settings()
         self._dist_view.save_settings()
         ctx = self._make_build_context()
         applied = fill_builder(ctx)
@@ -635,7 +635,7 @@ class App(ctk.CTk):
                         if l.startswith("添加打包内容"))
             self._dist_view.show_fill_result(added)
             # 刷新两页显示（编译设置 / 打包内容列表 / 预览）
-            self._producer_view.set_plugin_dir(self._plugin_dir, self._pm)
+            self._compile_view.set_plugin_dir(self._plugin_dir, self._pm)
             self._dist_view.set_plugin_dir(self._plugin_dir, self._pm)
             self._dist_view.refresh_preview(self._output_dir)
     
