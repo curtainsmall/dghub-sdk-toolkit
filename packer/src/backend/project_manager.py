@@ -1,26 +1,28 @@
-"""`.dghub-sdk/` project configuration management.
+""".dghub-sdk/ project configuration management.
 
-project.json 为唯一配置文件（format_version 1，按构建系统命名空间分组）::
+project.json 为唯一配置文件（format_version 2，顶层平铺 + builder 节）::
 
     {
-      "format_version": 1,
-      "build_system": "uv",         # 当前选中的构建系统（命名空间键即判别符）
-      "output_dir": "",              # 插件级：输出目录（相对插件目录；空 = 自动）
-      "target": "zip",               # 插件级：发布目标 zip / folder
-      "build_systems": {
-        "uv":      {"manifest": "", "entry": "main.py",
-                    "build_exe": true, "include_sdk": true},
-        "generic": {"source_dir": "", "entry": "",
-                    "pre_build": "", "exec_dir": "", "extra_files": []}
+      "format_version": 2,
+      "compile_system": "python",      # 编译选择：""（无）/ "python" / "command"
+      "compile": "",            # CommandCompiler 设置（compile_system="command" 时必填）
+      "compile_dir": "",             # CommandCompiler 执行目录（空 = 项目根）
+      "manifest": "",             # PythonCompiler 设置（compile_system="python" 时必填）
+      "include_sdk": true,        # PythonCompiler 选项：是否打包 dghub-sdk
+      "builder": {
+        "files": [],              # 统一文件选择列表：[{"path"|"dir"|"pattern", "tags"}]
+        "no_zip": false,          # 发布形态：false = zip（默认）；true = folder
+        "output_dir": ""          # 输出目录（空 = 插件目录/output）
       }
     }
 
-- 基类字段（所有系统必有）：entry；uv 以 `manifest`（依赖清单文件）
-  为项目根锚点，generic 以 `source_dir`（收集目录）为锚点
-- 路径（manifest / source_dir / exec_dir / output_dir）存相对插件目录的路径，跨盘符时回退绝对路径
-- 未知命名空间在读-改-写时保留，不丢数据
-- 旧格式（develop 平铺、feature 分支中间格式）执行破坏性升级：
-  直接重置为默认值并落盘、删除旧 deps.json（manifest.json 不受影响）
+- 路径（manifest / compile_dir / output_dir）存相对插件目录的路径，跨盘符时回退绝对路径
+- 未知键在读-改-写时保留，不丢数据
+- 旧格式（format_version 1，build_systems 命名空间）执行破坏性迁移：
+  字段归位（compile_system 按 manifest/compile 推断、extra_files 去 dest 入
+  builder.files、target 映射 no_zip），并删除旧 deps.json（manifest.json 不受影响）
+- 编译入口（entry）为 Python 编译专属输入，由 PythonCompiler 从
+  pyproject.toml 的 [tool.dghub].entry 现读，不入 project.json
 """
 
 import json
@@ -31,7 +33,7 @@ from typing import Any, Optional
 from backend.logbus import Logger
 
 # 当前支持的配置格式代数（仅破坏性变更时递增）
-_SUPPORTED_FORMAT = 1
+_SUPPORTED_FORMAT = 2
 
 _MANIFEST_DEFAULTS: dict[str, Any] = {
     "id": "",
@@ -42,23 +44,20 @@ _MANIFEST_DEFAULTS: dict[str, Any] = {
     "sdk": "1",
 }
 
-# 各构建系统配置的默认值（entry 为基类字段；每种语言对应一个系统）
-# uv（Python）：`manifest` = 依赖清单文件（相对插件目录；空 = 未选，
-# 项目根回退插件目录且跳过依赖打包），项目根 = 清单所在目录
-# generic：`source_dir` = 收集目录（原始文件选取根）；
-# `exec_dir` = pre-build 执行目录（空 = 插件目录）
-_BS_DEFAULTS: dict[str, dict[str, Any]] = {
-    "uv": {"manifest": "", "entry": "main.py",
-           "build_exe": True, "include_sdk": True},
-    "generic": {"source_dir": "", "entry": "",
-                "pre_build": "", "exec_dir": "", "extra_files": []},
+# 顶层默认值（compile_system 显式单选："" 无 / "python" / "command"）
+_PROJECT_DEFAULTS: dict[str, Any] = {
+    "compile_system": "",
+    "compile": "",
+    "compile_dir": "",
+    "manifest": "",
+    "include_sdk": True,
 }
 
-# 顶层插件级共享键默认值
-_PROJECT_TOP_DEFAULTS: dict[str, Any] = {
-    "build_system": "uv",
+# builder 节默认值（files = 统一文件选择列表，条目 {path|dir|pattern, tags}）
+_BUILDER_DEFAULTS: dict[str, Any] = {
+    "files": [],
+    "no_zip": False,
     "output_dir": "",
-    "target": "zip",
 }
 
 
@@ -75,7 +74,7 @@ class ProjectManager:
 
     def __init__(self, plugin_dir: str,
                  log: Optional[Logger] = None) -> None:
-        # resolve：CLI 可能传入 "." 等相对路径，未解析时 .name 为空串，
+        # resolve：插件目录可能传入 "." 等相对路径，未解析时 .name 为空串，
         # 会导致产物名（如 {name}.exe / {name}.zip）为空
         self._plugin_dir = Path(plugin_dir).resolve()
         self._root = self._plugin_dir / ".dghub-sdk"
@@ -116,7 +115,7 @@ class ProjectManager:
         return (self._plugin_dir / p).resolve().as_posix()
 
     # ------------------------------------------------------------------
-    # Manifest (info tab)
+    # Manifest（插件元数据）
     # ------------------------------------------------------------------
 
     def read_manifest(self) -> dict[str, Any]:
@@ -142,20 +141,21 @@ class ProjectManager:
         )
 
     # ------------------------------------------------------------------
-    # Project config（唯一配置文件，含各构建系统命名空间）
+    # Project config（format_version 2，顶层平铺 + builder 节）
     # ------------------------------------------------------------------
 
     def _load_json(self, name: str) -> Any:
         path = self._root / name
         if path.is_file():
             try:
-                return json.loads(path.read_text(encoding="utf-8"))
+                # utf-8-sig：容忍 Windows 编辑器写入的 BOM
+                return json.loads(path.read_text(encoding="utf-8-sig"))
             except (json.JSONDecodeError, OSError):
                 pass
         return None
 
     def read_project(self) -> dict[str, Any]:
-        """读取并归一化 project.json；旧格式执行破坏性升级（重置默认值）。"""
+        """读取并归一化 project.json；旧格式执行破坏性迁移。"""
         raw = self._load_json("project.json")
         deps_path = self._root / "deps.json"
 
@@ -166,17 +166,24 @@ class ProjectManager:
                     f"project.json 格式版本为 {fv}，当前仅支持 "
                     f"{_SUPPORTED_FORMAT}：项目由更新版本的 Packer 创建，"
                     "请升级 Packer")
-            if "build_systems" in raw:
-                return self._fill_defaults(raw)
-            # 带版本号但结构不识别（本分支中间格式）→ 破坏性重置
+            if fv == _SUPPORTED_FORMAT and "builder" in raw:
+                data = self._fill_defaults(raw)
+                # v2 早期键 producer → compile_system（温和搬移，落盘一次）
+                if not data.get("compile_system") and data.get("producer"):
+                    data["compile_system"] = data["producer"]
+                    data.pop("producer", None)
+                    try:
+                        self.write_project(data)
+                    except OSError:
+                        pass
+                return data
+            # format_version 1 或结构不识别 → 破坏性迁移
 
-        # 旧格式 / 结构不识别 → 重置为默认值
         had_legacy = (isinstance(raw, dict) and bool(raw)) \
             or deps_path.is_file()
-        data = self._fill_defaults({"format_version": _SUPPORTED_FORMAT})
         if had_legacy:
-            self._reset_legacy(data, deps_path)
-        return data
+            self._migrate_v1(raw or {}, deps_path)
+        return self._fill_defaults(self._load_json("project.json") or {})
 
     def write_project(self, data: dict[str, Any]) -> None:
         """Write project settings to `.dghub-sdk/project.json`."""
@@ -189,63 +196,111 @@ class ProjectManager:
 
     @staticmethod
     def _fill_defaults(raw: dict[str, Any]) -> dict[str, Any]:
-        """补全顶层与已知系统的默认键；未知键/未知命名空间原样保留。"""
+        """补全顶层与 builder 节默认键；未知键原样保留。"""
         data = dict(raw)
-        for k, v in _PROJECT_TOP_DEFAULTS.items():
+        for k, v in _PROJECT_DEFAULTS.items():
             data.setdefault(k, v)
-        systems = dict(data.get("build_systems", {}))
-        for bs_id, defaults in _BS_DEFAULTS.items():
-            cfg = dict(defaults)
-            cfg.update(systems.get(bs_id, {}))
-            systems[bs_id] = cfg
-        data["build_systems"] = systems
+        builder = dict(data.get("builder", {}))
+        for k, v in _BUILDER_DEFAULTS.items():
+            builder.setdefault(k, v)
+        if not isinstance(builder.get("files"), list):
+            builder["files"] = []
+        data["builder"] = builder
         return data
 
-    def _reset_legacy(self, data: dict[str, Any], deps_path: Path) -> None:
-        """旧版配置破坏性升级：重置落盘并删除旧 deps.json。"""
+    def _migrate_v1(self, raw: dict[str, Any], deps_path: Path) -> None:
+        """旧版（format_version 1，build_systems 命名空间）破坏性迁移。"""
+        systems = raw.get("build_systems", {})
+        if not isinstance(systems, dict):
+            systems = {}
+        uv = systems.get("uv", {})
+        gen = systems.get("generic", {})
+
+        data = dict(_PROJECT_DEFAULTS)
+        data.update({
+            "format_version": _SUPPORTED_FORMAT,
+            # v1 entry/source_dir 弃用：编译入口由 PythonCompiler 从 pyproject 现读，
+            # 构建根统一为插件目录
+            "compile": gen.get("pre_build", ""),        # v1 旧键 pre_build
+            "compile_dir": gen.get("exec_dir", ""),     # v1 旧键 exec_dir
+            "manifest": uv.get("manifest", ""),
+            "include_sdk": bool(uv.get("include_sdk", True)),
+        })
+        # compile_system 推断：manifest 非空 → python；否则 compile 非空 → command
+        if data["manifest"]:
+            data["compile_system"] = "python"
+        elif data["compile"]:
+            data["compile_system"] = "command"
+        else:
+            data["compile_system"] = ""
+
+        # builder 节：extra_files 去 dest 入 files；target 映射 no_zip
+        builder = dict(_BUILDER_DEFAULTS)
+        files: list[dict[str, Any]] = []
+        extra = gen.get("extra_files", [])
+        if isinstance(extra, list):
+            for item in extra:
+                if not isinstance(item, dict):
+                    continue
+                new: dict[str, Any] = {}
+                if "path" in item:
+                    new["path"] = item["path"]
+                elif "pattern" in item:
+                    new["pattern"] = item["pattern"]
+                else:
+                    continue
+                tags = item.get("tags")
+                if isinstance(tags, list) and tags:
+                    new["tags"] = tags
+                files.append(new)
+        builder["files"] = files
+        builder["no_zip"] = (raw.get("target") == "folder")
+        builder["output_dir"] = raw.get("output_dir", "")
+        data["builder"] = builder
+
         try:
             self.write_project(data)
             if deps_path.is_file():
                 deps_path.unlink()
-            self._note("检测到旧版配置，构建设置已重置"
-                       "（manifest 不受影响），请重新配置", "warning")
+            self._note("检测到旧版配置，已迁移到新格式"
+                       "（manifest 不受影响），请检查设置", "warning")
         except OSError as exc:
-            self._note(f"配置重置落盘失败（{exc}），将在下次写入时重试",
+            self._note(f"配置迁移落盘失败（{exc}），将在下次写入时重试",
                        "warning")
 
     # ------------------------------------------------------------------
-    # 构建系统命名空间访问接口
+    # 字段便捷存取（顶层 / builder 节）
     # ------------------------------------------------------------------
 
-    def get_bs_config(self, bs_id: str) -> dict[str, Any]:
-        """Return the build-system namespace config, merged with defaults."""
-        project = self.read_project()
-        cfg = dict(_BS_DEFAULTS.get(bs_id, {}))
-        cfg.update(project.get("build_systems", {}).get(bs_id, {}))
-        return cfg
+    def get_field(self, key: str) -> Any:
+        """读顶层字段（compile_system / manifest / include_sdk ...）。"""
+        return self.read_project().get(key, _PROJECT_DEFAULTS.get(key))
 
-    def set_bs_config(self, bs_id: str, key: str, value: Any) -> None:
-        """Set one key in a build-system namespace (read-merge-write)."""
+    def set_field(self, key: str, value: Any) -> None:
+        """写一个顶层字段（read-merge-write，保留未知键）。"""
         project = self.read_project()
-        systems = project.setdefault("build_systems", {})
-        cfg = systems.setdefault(bs_id, dict(_BS_DEFAULTS.get(bs_id, {})))
-        cfg[key] = value
+        project[key] = value
         self.write_project(project)
 
-    def read_extra_files(self) -> list[dict[str, str]]:
-        """Return extra file entries: [{"path"|"pattern", "dest"}]."""
-        return list(self.get_bs_config("generic").get("extra_files", []))
+    def get_builder(self) -> dict[str, Any]:
+        """读 builder 节（合并默认值）。"""
+        return dict(self.read_project().get("builder", _BUILDER_DEFAULTS))
 
-    def write_extra_files(self, files: list[dict[str, str]]) -> None:
-        """Write extra file entries into the generic namespace."""
-        self.set_bs_config("generic", "extra_files", files)
+    def set_builder_field(self, key: str, value: Any) -> None:
+        """写 builder 节一个字段（read-merge-write）。"""
+        project = self.read_project()
+        builder = dict(project.get("builder", {}))
+        builder[key] = value
+        project["builder"] = builder
+        self.write_project(project)
 
-    # ------------------------------------------------------------------
-    # helpers
-    # ------------------------------------------------------------------
+    def read_builder_files(self) -> list[dict[str, Any]]:
+        """读 builder.files 条目列表。"""
+        return list(self.get_builder().get("files", []))
 
-    def get_plugin_id(self) -> str:
-        return self.read_manifest().get("id", "")
+    def write_builder_files(self, files: list[dict[str, Any]]) -> None:
+        """写 builder.files 条目列表。"""
+        self.set_builder_field("files", files)
 
 
 def project_exists(plugin_dir: str) -> bool:

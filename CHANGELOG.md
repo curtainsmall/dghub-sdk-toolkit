@@ -7,6 +7,57 @@
 版本号为 toolkit 发布批次号，Packer 与 SDK 统一使用；SDK 仅在自身有变更
 的批次发布至 PyPI（版本跳号为预期行为）。
 
+## [0.5.0] - 2026-08-02
+
+### 新增
+
+- **Packer**：两阶段构建管线
+  - 阶段 1 compile 编译（显式选择：`(无)` / Python `uv + PyInstaller` /
+    自定义命令，编译页按选项整区切换设置）
+  - 阶段 2 统一 build 步骤（收集打包内容 + 编译产物树 → 自动生成
+    manifest → 打包 zip/文件夹）
+- **Packer**：编译系统体系——身份 / 设置字段 / 探测 / 预检 / 校验 /
+  推导 / 执行九项能力；「从编译填充」按钮串联探测与推导（probe 建议清单、
+  deduce 推导编译产物条目（`<插件名>.exe` + `_internal/`），只填空）
+- **Packer**：打包内容显式声明——条目可标 `入口`（恰好一个）；Python 编译产物
+  （`<插件名>.exe` + `_internal/`）自动声明为只读条目（构建时从产物树兑现），
+  切换编译系统自动刷新；双击条目打开**详情对话框**（完整路径 + 重选文件/目录 + 标签下拉）；
+  「从编译填充」按钮左侧绿/黄反馈标签
+- **Packer**：外观模式默认深色，选项中文化（跟随系统 / 浅色 / 深色）
+- **Packer**：**条目级与区域级错误高亮**——校验失败的条目行红框红字（含无编译时
+  入口缺失提前拦截）、打包内容区域容器红框 + 错误提示；内容修改即时清除、
+  tab 标题高亮联动消除
+- **Packer**：编译页 PyInstaller 状态指示（绿色 `PyInstaller installed` /
+  红色 `PyInstaller required`，后台线程预检）
+- **Packer**：`dgpacker-cli` 收敛为 **build-only 只读 CLI**——唯一 `build` 命令，
+  读 `.dghub-sdk/` 构建出包，退出码 0/2/3/4/130；面向 CI，不提供配置命令
+  （配置由 GUI 生成并建议提交版本化）
+
+### 变更
+
+- **Packer**：编译字段命名为 **compile**（编译命令）与 **compile_dir**
+  （执行目录）；编译系统接口契约明确为九项能力（身份 / 设置字段 /
+  探测 / 预检 / 校验 / 推导 / 执行）
+- **Packer**：编译入口（entry）从 `project.json` 移除——Python 编译入口由
+  `pyproject.toml [tool.dghub].entry` 现读，不入配置（构建页入口输入框同步移除）
+- **Packer**：打包内容列表 UI 重构——原生文件/目录选择器（双按钮）、卡片式
+  斑马纹行、hover 高亮、类型后缀标识（目录尾部 `/`）、入口徽章位于文件名右侧
+- **Packer**：Python 编译仅接受 `pyproject.toml` 作为依赖清单
+  （唯一可声明编译入口 `[tool.dghub].entry` 的清单；
+  `requirements.txt` / `setup.py` 等不再支持）
+- **Packer**：构建根统一为插件目录（移除 `source_dir` 字段
+  与「项目根」选择 UI——各种来源的文件/产物在插件目录下天然共存）
+- **Packer**：对话框统一——居中于主窗口并限制边界、按钮「确定左 / 取消右」、
+  下拉全部只读（不可输入）
+- **Packer**：编译 tab 执行目录重置按钮默认隐藏且保持列宽（布局不跳动）
+
+### 修复
+
+- Packer `project.json` 读取容忍 UTF-8 BOM（Windows 编辑器写入 BOM 不再导致
+  配置静默回退默认值）
+- Packer 设置页过时说明：「打包依赖到 `vendor/`」→
+  「打包依赖（uv 下载）」
+
 ## [0.4.0] - 2026-07-31
 
 ### 新增
@@ -151,6 +202,7 @@
 
 历史版本，详见 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases)。
 
+[0.5.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.2.0...v0.2.1

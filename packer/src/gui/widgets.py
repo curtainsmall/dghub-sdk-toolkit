@@ -38,3 +38,21 @@ def reset_entry_border(entry: ctk.CTkEntry) -> None:
     entry.configure(
         border_width=ctk.ThemeManager.theme["CTkEntry"]["border_width"],
         border_color=ctk.ThemeManager.theme["CTkEntry"]["border_color"])
+
+
+def center_dialog(child: ctk.CTkToplevel, parent_win: Any) -> None:
+    """将子对话框居中于父窗口，并限制在主窗口边界内。"""
+    child.update_idletasks()
+    pw = parent_win.winfo_width()
+    ph = parent_win.winfo_height()
+    px = parent_win.winfo_x()
+    py = parent_win.winfo_y()
+    cw = child.winfo_reqwidth()
+    ch = child.winfo_reqheight()
+    if pw > 0 and ph > 0:
+        x = px + (pw - cw) // 2
+        y = py + (ph - ch) // 2
+        # clamp：对话框始终落在主窗口边界内
+        x = max(px, min(x, px + pw - cw))
+        y = max(py, min(y, py + ph - ch))
+        child.geometry(f"+{x}+{y}")

@@ -1,6 +1,7 @@
 ; DGHub SDK Packer — Inno Setup 安装脚本（每用户安装）
 ; 由 build.py 调用：ISCC installer.iss /DMyVersion=<x.y.z>
 ; 打包 onedir（bin\dghub-sdk-packer\）为安装器，装到 LocalAppData 并将安装目录加入用户 PATH。
+; GUI = dgpacker-gui.exe（开始菜单）；CI CLI = dgpacker-cli.exe（PATH 命令 `dgpacker-cli build`）。
 
 #ifndef MyVersion
   #define MyVersion "0.0.0"
@@ -8,7 +9,7 @@
 
 #define MyAppName "DGHub SDK Packer"
 #define MyGuiExe "dgpacker-gui.exe"
-#define MyCliExe "dgpacker.exe"
+#define MyCliExe "dgpacker-cli.exe"
 
 [Setup]
 AppId={{A7C3E1F2-5B9D-4E8A-9C2F-1D3B6E4A8F70}
@@ -41,13 +42,13 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "bin\dghub-sdk-packer\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-; 开始菜单只放 GUI；CLI(dgpacker.exe) 通过 PATH 使用，无需快捷方式
+; 开始菜单只放 GUI；CLI(dgpacker-cli.exe) 通过 PATH 使用，无需快捷方式
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyGuiExe}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyGuiExe}"; Tasks: desktopicon
 
 [Registry]
-; 将安装目录加入用户 PATH（使 dgpacker.exe 全局可用）；ChangesEnvironment=yes 会广播 WM_SETTINGCHANGE
+; 将安装目录加入用户 PATH（使 dgpacker-cli 全局可用）；ChangesEnvironment=yes 会广播 WM_SETTINGCHANGE
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; \
     ValueData: "{olddata};{app}"; Check: NeedsAddPath(ExpandConstant('{app}'))
 

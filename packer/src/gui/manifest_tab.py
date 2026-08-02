@@ -1,7 +1,6 @@
 """Manifest editor tab."""
 
 import json
-import time
 from pathlib import Path
 from tkinter import messagebox
 from typing import Any, Callable, Optional
@@ -10,7 +9,7 @@ import customtkinter as ctk
 
 from backend.manifest_validator import VALID_FIELD_TYPES, validate_manifest
 from backend.project_manager import ProjectManager
-from gui.widgets import reset_entry_border
+from gui.widgets import center_dialog, reset_entry_border
 
 FIELD_TYPE_LABELS: dict[str, str] = {
     "bool": "开关 (bool)",
@@ -23,6 +22,24 @@ FIELD_TYPE_LABELS: dict[str, str] = {
     "preset": "波形预设 (preset)",
     "path": "路径 (path)",
 }
+
+# 字段类型徽章样式（浅/深模式背景色）：类型 → ((bg_light, bg_dark), 短名)
+_FIELD_BADGE = {
+    "text": (("#DCE7FB", "#2E4A7A"), "文本"),
+    "path": (("#DCE7FB", "#2E4A7A"), "路径"),
+    "number": (("#FDEBD9", "#8A5A20"), "数字"),
+    "percent": (("#FDEBD9", "#8A5A20"), "百分比"),
+    "duration": (("#FDEBD9", "#8A5A20"), "秒数"),
+    "bool": (("#DCF5E5", "#2E6B45"), "开关"),
+    "select": (("#E9E2F8", "#4A3A6A"), "下拉"),
+    "channel": (("#E9E2F8", "#4A3A6A"), "通道"),
+    "preset": (("#E9E2F8", "#4A3A6A"), "预设"),
+}
+
+
+def _field_badge_style(ftype: str) -> tuple[tuple[str, str], str]:
+    """字段类型 → 徽章配色 + 短名（未知类型回退灰色）。"""
+    return _FIELD_BADGE.get(ftype, (("gray75", "gray35"), ftype))
 
 
 def _reset_entry_border(entry: ctk.CTkEntry) -> None:
@@ -273,8 +290,6 @@ class ManifestTab(ctk.CTkFrame):
         fld_btn_frame.grid(row=2, column=0, pady=5)
         ctk.CTkButton(fld_btn_frame, text="+ 添加字段", width=90,
                       command=self._add_field).pack(side="left", padx=2)
-        ctk.CTkButton(fld_btn_frame, text="编辑", width=60,
-                      command=self._edit_selected_field).pack(side="left", padx=2)
         ctk.CTkButton(fld_btn_frame, text="- 删除字段", width=80,
                       command=self._delete_field).pack(side="left", padx=2)
         for btn in fld_btn_frame.winfo_children():
@@ -320,29 +335,18 @@ class ManifestTab(ctk.CTkFrame):
             self._refresh_fields_display()
     
     def _on_field_click(self, idx: int) -> None:
-        """Click a field button -> select (highlight). Double-click within 400ms = edit."""
-        now = time.time()
-        if (hasattr(self, '_last_click_time')
-                and self._last_click_idx == idx
-                and now - self._last_click_time < 0.4):
-            self._last_click_time = 0.0
-            self._edit_field_at(idx)
-            return
-        self._last_click_time = now
-        self._last_click_idx = idx
+        """双击字段行 → 编辑；同时记录当前字段供删除按钮定位。"""
         sec = self._get_current_section()
         if sec is None or idx >= len(sec["fields"]):
             return
-        self._selected_field = idx
-        self._refresh_fields_display()
+        self._selected_field = idx  # 操作目标（无视觉选中态）
+        self._edit_field_at(idx)
 
     def _edit_field_at(self, idx: int) -> None:
         """Open editor for the field at given index (used by double-click)."""
         sec = self._get_current_section()
         if sec is None or idx >= len(sec["fields"]):
             return
-        self._selected_field = idx
-        self._refresh_fields_display()
         old = sec["fields"][idx]
         updated = self._field_dialog(existing=old)
         if updated:
@@ -350,49 +354,62 @@ class ManifestTab(ctk.CTkFrame):
             self._refresh_fields_display()
             self._refresh_preview()
 
-    def _edit_selected_field(self) -> None:
-        """Open editor for the currently selected field."""
-        sec = self._get_current_section()
-        if sec is None or not sec["fields"]:
-            return
-        idx = self._selected_field
-        if idx >= len(sec["fields"]):
-            return
-        old = sec["fields"][idx]
-        updated = self._field_dialog(existing=old)
-        if updated:
-            sec["fields"][idx] = updated
-            self._refresh_fields_display()
-            self._refresh_preview()
-    
     def _get_selected_section_index(self) -> Optional[int]:
         if 0 <= self._selected_section < len(self._sections):
             return self._selected_section
         return None
     
     def _refresh_section_list(self) -> None:
-        """Rebuild section buttons with highlight on the selected one."""
+        """Rebuild section rows with highlight on the selected one."""
         for btn in self._section_buttons:
             btn.destroy()
         self._section_buttons.clear()
     
         for i, sec in enumerate(self._sections):
             selected = (i == self._selected_section)
-            btn = ctk.CTkButton(
+            n_fields = len(sec.get("fields", []))
+
+            # 卡片式行（斑马纹 + 圆角；选中整行蓝底）
+            leave_color = (("gray94", "gray19") if i % 2
+                           else ("gray88", "gray23"))
+            row = ctk.CTkFrame(
                 self._section_container,
-                text=sec["section"],
-                anchor="w",
-                height=28,
-                fg_color="#2B6EA6" if selected else "transparent",
-                text_color=("white" if selected else None),
-                hover_color="#1F5380",
-                command=lambda idx=i: self._on_section_click(idx),
-            )
-            btn.grid(row=i + 1, column=0, sticky="ew", padx=2, pady=1)
-            self._section_buttons.append(btn)
-    
+                fg_color=("#2B6EA6" if selected else leave_color),
+                corner_radius=6)
+            row.grid(row=i + 1, column=0, sticky="ew", padx=2, pady=2)
+            row.grid_columnconfigure(1, weight=1)
+
+            ctk.CTkLabel(
+                row, text=sec["section"], anchor="w",
+                font=ctk.CTkFont(weight="bold"),
+                text_color=("white" if selected else None)
+            ).grid(row=0, column=0, sticky="w", padx=(8, 0))
+            ctk.CTkLabel(
+                row, text=f"{n_fields} 字段",
+                font=ctk.CTkFont(size=11),
+                text_color=("#D6E4FF" if selected else "gray")
+            ).grid(row=0, column=2, padx=(8, 8))
+
+            # 整行可点击（含子控件）
+            row.bind("<Button-1>", lambda e, idx=i: self._on_section_click(idx))
+            for child in row.winfo_children():
+                child.bind(
+                    "<Button-1>", lambda e, idx=i: self._on_section_click(idx))
+
+            # hover 高亮：未选中行悬停提升底色；选中行保持蓝底
+            hover_color = ("#D6E4F2", "gray28")
+            sel_color = "#2B6EA6"
+            for w in (row, *row.winfo_children()):
+                w.bind("<Enter>",
+                       lambda e, r=row, s=selected, hc=hover_color:
+                       r.configure(fg_color=(sel_color if s else hc)))
+                w.bind("<Leave>",
+                       lambda e, r=row, s=selected, lc=leave_color:
+                       r.configure(fg_color=(sel_color if s else lc)))
+            self._section_buttons.append(row)
+
     def _refresh_fields_display(self) -> None:
-        """Rebuild field buttons with highlight on the selected one."""
+        """Rebuild field rows（无选中态；双击编辑、hover 高亮）。"""
         for btn in self._field_buttons:
             btn.destroy()
         self._field_buttons.clear()
@@ -404,20 +421,52 @@ class ManifestTab(ctk.CTkFrame):
             return
     
         for j, f in enumerate(sec["fields"]):
-            selected = (j == self._selected_field)
-            label = f"{f.get('key', '?')} ({f.get('type', '?')}) - {f.get('label', '?')}"
-            btn = ctk.CTkButton(
+            ftype = f.get("type", "?")
+            (fbg, ffg), fshort = _field_badge_style(ftype)
+            key = f.get("key", "?")
+            flabel = f.get("label", "")
+
+            # 卡片式行（斑马纹 + 圆角；字段无持久选中态，恒斑马底色）
+            leave_color = (("gray94", "gray19") if j % 2
+                           else ("gray88", "gray23"))
+            row = ctk.CTkFrame(
                 self._field_container,
-                text=label,
-                anchor="w",
-                height=28,
-                fg_color="#2B6EA6" if selected else "transparent",
-                text_color=("white" if selected else None),
-                hover_color="#1F5380",
-                command=lambda idx=j: self._on_field_click(idx),
-            )
-            btn.grid(row=j + 1, column=0, sticky="ew", padx=2, pady=1)
-            self._field_buttons.append(btn)
+                fg_color=leave_color,
+                corner_radius=6)
+            row.grid(row=j + 1, column=0, sticky="ew", padx=2, pady=2)
+            row.grid_columnconfigure(1, weight=1)
+
+            ctk.CTkLabel(
+                row, text=fshort, width=44, height=20,
+                font=ctk.CTkFont(size=10, weight="bold"),
+                fg_color=fbg, text_color=ffg, corner_radius=4
+            ).grid(row=0, column=0, padx=(6, 6), pady=4)
+            ctk.CTkLabel(
+                row, text=key, anchor="w",
+                font=ctk.CTkFont(family="Consolas", size=13, weight="bold")
+            ).grid(row=0, column=1, sticky="w")
+            ctk.CTkLabel(
+                row, text=flabel, anchor="e",
+                font=ctk.CTkFont(size=12), text_color="gray"
+            ).grid(row=0, column=2, padx=(8, 8))
+
+            # 整行可双击 → 编辑字段（无选中态，单击不做事）
+            row.bind("<Double-1>",
+                     lambda e, idx=j: self._on_field_click(idx))
+            for child in row.winfo_children():
+                child.bind(
+                    "<Double-1>", lambda e, idx=j: self._on_field_click(idx))
+
+            # hover 高亮：进入行区域提升底色，离开恢复斑马底色
+            hover_color = ("#D6E4F2", "gray28")
+            for w in (row, *row.winfo_children()):
+                w.bind("<Enter>",
+                       lambda e, r=row, hc=hover_color:
+                       r.configure(fg_color=hc))
+                w.bind("<Leave>",
+                       lambda e, r=row, lc=leave_color:
+                       r.configure(fg_color=lc))
+            self._field_buttons.append(row)
 
     # ------------------------------------------------------------------
     # field management
@@ -439,6 +488,7 @@ class ManifestTab(ctk.CTkFrame):
         field = self._field_dialog()
         if field:
             sec["fields"].append(field)
+            self._refresh_section_list()  # 字段数变化 → 刷新 section 计数
             self._refresh_fields_display()
             self._refresh_preview()
 
@@ -453,6 +503,7 @@ class ManifestTab(ctk.CTkFrame):
             sec["fields"].pop(idx)
             if self._selected_field >= len(sec["fields"]):
                 self._selected_field = max(0, len(sec["fields"]) - 1)
+            self._refresh_section_list()  # 字段数变化 → 刷新 section 计数
             self._refresh_fields_display()
             self._refresh_preview()
 
@@ -471,20 +522,7 @@ class ManifestTab(ctk.CTkFrame):
 
     def _center_dlg(self, child: ctk.CTkToplevel, parent_win: Any) -> None:
         """Center child dialog on parent window, clamped within parent bounds."""
-        child.update_idletasks()
-        pw = parent_win.winfo_width()
-        ph = parent_win.winfo_height()
-        px = parent_win.winfo_x()
-        py = parent_win.winfo_y()
-        cw = child.winfo_reqwidth()
-        ch = child.winfo_reqheight()
-        if pw > 0 and ph > 0:
-            x = px + (pw - cw) // 2
-            y = py + (ph - ch) // 2
-            # clamp so the dialog stays within parent bounds
-            x = max(px, min(x, px + pw - cw))
-            y = max(py, min(y, py + ph - ch))
-            child.geometry(f"+{x}+{y}")
+        center_dialog(child, parent_win)
 
     def _field_dialog(self, existing: Optional[dict] = None) -> Optional[dict]:
         """Open a dialog for adding/editing a field. Returns field dict or None."""
@@ -558,7 +596,7 @@ class ManifestTab(ctk.CTkFrame):
                 err.grid_remove()
                 error_labels[key] = err
             elif widget_type == "combo":
-                cb = ctk.CTkComboBox(frame, values=options or [], width=250)
+                cb = ctk.CTkOptionMenu(frame, values=options or [], width=250)
                 cb.grid(row=0, column=1, padx=(5, 0), sticky="e")
                 if existing and key in existing:
                     cb.set(str(existing[key]))
@@ -612,28 +650,31 @@ class ManifestTab(ctk.CTkFrame):
         row_frames["default"] = _default_frame
         row += 1
 
-        def _rebuild_default_widget(new_type: str) -> None:
+        def _rebuild_default_widget(new_type: str, restore: bool = True) -> None:
             """Replace default widget with appropriate type (Entry/Combo).
-            Restores existing field value on initial load."""
+
+            ``restore=True``（仅初始加载）恢复 existing 字段的原默认值；
+            用户切换类型后不保留上一类型的默认值，改用新类型默认。
+            """
             frame = row_frames["default"]
             # Destroy old widget in column 1
             for w in frame.grid_slaves(row=0, column=1):
                 w.destroy()
         
-            # Try to restore existing default value
+            # 仅初始加载恢复旧值；切换类型后不保留
             existing_default = None
-            if existing and "default" in existing:
+            if restore and existing and "default" in existing:
                 existing_default = existing["default"]
         
             if new_type == "bool":
-                widget = ctk.CTkComboBox(frame, values=["true", "false"], width=250)
+                widget = ctk.CTkOptionMenu(frame, values=["true", "false"], width=250)
                 widget.grid(row=0, column=1, padx=(5, 0), sticky="e")
                 if existing_default is not None and isinstance(existing_default, bool):
                     widget.set("true" if existing_default else "false")
                 else:
                     widget.set("false")
             elif new_type == "channel":
-                widget = ctk.CTkComboBox(frame, values=["A", "B", "Both"], width=250)
+                widget = ctk.CTkOptionMenu(frame, values=["A", "B", "Both"], width=250)
                 widget.grid(row=0, column=1, padx=(5, 0), sticky="e")
                 if existing_default is not None and existing_default in ("a", "b", "both"):
                     widget.set(existing_default.upper())
@@ -641,7 +682,7 @@ class ManifestTab(ctk.CTkFrame):
                     widget.set("A")
             elif new_type == "select":
                 opts = _options_list[:] if _options_list else ["(No Option)"]
-                widget = ctk.CTkComboBox(frame, values=opts, width=250)
+                widget = ctk.CTkOptionMenu(frame, values=opts, width=250)
                 widget.grid(row=0, column=1, padx=(5, 0), sticky="e")
                 if existing_default is not None and existing_default in opts:
                     widget.set(existing_default)
@@ -664,6 +705,9 @@ class ManifestTab(ctk.CTkFrame):
                     widget.configure(placeholder_text="number")
             entries["default"] = widget
 
+        # 当前对话框显示的类型（None = 尚未初始化，首次调用视为初始加载）
+        _current_dlg_type: list[Optional[str]] = [None]
+
         def on_type_change(new_type: str) -> None:
             """Show/hide optional rows based on selected type."""
             visible = set(self._TYPE_EXTRA.get(new_type, []))
@@ -684,8 +728,11 @@ class ManifestTab(ctk.CTkFrame):
             else:
                 if _options_area is not None:
                     _options_area.grid_remove()
-            # Rebuild default widget to match type
-            _rebuild_default_widget(new_type)
+            # Rebuild default widget to match type；仅初始加载恢复旧值，
+            # 切换类型时清空（不保留上一类型的默认值）
+            restore = (_current_dlg_type[0] is None)
+            _rebuild_default_widget(new_type, restore)
+            _current_dlg_type[0] = new_type
             _clear_errors()
 
         # ----------------------------------------------------------------
@@ -788,7 +835,7 @@ class ManifestTab(ctk.CTkFrame):
                 _options_list[idx] = result_opt
                 # If default was set to the old value, update it
                 default_w = entries["default"]
-                if isinstance(default_w, (ctk.CTkComboBox, ctk.CTkOptionMenu)) and default_w.get() == old_val:
+                if isinstance(default_w, ctk.CTkOptionMenu) and default_w.get() == old_val:
                     default_w.set(result_opt)
                 _refresh_options_display()
                 _rebuild_default_widget("select")
@@ -908,7 +955,7 @@ class ManifestTab(ctk.CTkFrame):
 
         # Bind type change — CustomTkinter OptionMenu supports command
         type_widget = entries["type"]
-        if isinstance(type_widget, (ctk.CTkComboBox, ctk.CTkOptionMenu)):
+        if isinstance(type_widget, ctk.CTkOptionMenu):
             type_widget.configure(command=on_type_change)
             # Trigger initial show
             current_type = type_widget.get()
@@ -926,7 +973,7 @@ class ManifestTab(ctk.CTkFrame):
             }
             # Read and coerce "default"
             default_w = entries["default"]
-            if isinstance(default_w, (ctk.CTkComboBox, ctk.CTkOptionMenu)):
+            if isinstance(default_w, ctk.CTkOptionMenu):
                 raw = default_w.get()
                 if raw not in ("(No Option)", ""):
                     if ftype == "bool":
@@ -962,10 +1009,14 @@ class ManifestTab(ctk.CTkFrame):
             result = field
             win.destroy()
 
-        ctk.CTkButton(win, text="确定", command=on_ok).grid(
-            row=row, column=0, pady=15)
-        ctk.CTkButton(win, text="取消", command=win.destroy).grid(
-            row=row, column=1, pady=15)
+        # 底部按钮：右对齐（确定在左、取消在最右）
+        btn_frame = ctk.CTkFrame(win, fg_color="transparent")
+        btn_frame.grid(row=row, column=0, columnspan=2, sticky="e",
+                       padx=15, pady=15)
+        ctk.CTkButton(btn_frame, text="取消", width=80,
+                      command=win.destroy).pack(side="right")
+        ctk.CTkButton(btn_frame, text="确定", width=80,
+                      command=on_ok).pack(side="right", padx=(8, 0))
 
         self.wait_window(win)
         return result

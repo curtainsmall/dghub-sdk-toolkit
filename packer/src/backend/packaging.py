@@ -1,6 +1,7 @@
 """插件打包：生成产物 manifest.json、写 zip / 文件夹、清理中间产物。
 
-从 GUI 的 app._run_build 抽出，供 GUI 与 CLI 共用（纯逻辑，经 Logger 汇报）。
+阶段 2 的交付步骤（纯逻辑，经 Logger 汇报）。产物清单（out_files）由
+pipeline 收集（Builder 条目 + 编译产物树），本模块只负责组装与清理。
 """
 
 import json
@@ -9,42 +10,31 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from backend.build_systems import BuildContext, BuildSystemSupport
-
 
 def cleanup_intermediates(output_dir: Path, plugin_name: str) -> None:
-    """删除输出目录内的构建中间产物（vendor / cache / 中间 exe）。"""
-    temp_vendor = output_dir / "vendor"
-    if temp_vendor.is_dir():
-        shutil.rmtree(temp_vendor, ignore_errors=True)
-    cache_dir = output_dir / "cache"
-    if cache_dir.is_dir():
-        shutil.rmtree(cache_dir, ignore_errors=True)
-    exe_file = output_dir / f"{plugin_name}.exe"
-    if exe_file.is_file():
-        try:
-            exe_file.unlink()
-        except OSError:
-            pass
+    """删除输出目录内的构建中间产物（.deps / .pyi / cache）。
 
-
-def package_plugin(ctx: BuildContext, bs: BuildSystemSupport,
-                   manifest_data: dict[str, Any], target: str) -> Path:
-    """收集产物并按 target（zip / folder）打包，返回产物路径。
-
-    产物 manifest 的 entry 由构建系统决定（如 exe 模式为 `<名>.exe`）；
-    `collect_output` 的存在性校验与 glob 求值在 pre-build 之后执行，
-    缺失/冲突时抛 ``BuildError``。打包后清理输出目录内的中间产物。
+    产物（<name>.zip 或 <name>/ 目录）保留。
     """
-    data = dict(manifest_data)
-    data["entry"] = bs.manifest_entry(ctx)
-    data.pop("homepage", None)
-    manifest_json = json.dumps(data, ensure_ascii=False, indent=2)
+    for name in (".deps", ".pyi", "cache"):
+        d = output_dir / name
+        if d.is_dir():
+            shutil.rmtree(d, ignore_errors=True)
 
-    # 收集产物清单（可能抛 BuildError：缺失文件 / 同名冲突）
-    out_files = bs.collect_output(ctx)
 
-    if target == "folder":
+def package_plugin(ctx: Any, manifest_data: dict[str, Any],
+                   out_files: list[tuple[Path, str]],
+                   no_zip: bool) -> Path:
+    """按 no_zip 组装产物并清理中间目录，返回产物路径。
+
+    - ``no_zip=False``（默认）→ ``<name>.zip``（分发）
+    - ``no_zip=True`` → ``<name>/`` 目录（调试，就地可用）
+
+    收集阶段的缺失/冲突已由 pipeline 的 Builder.resolve 抛出 BuildError。
+    """
+    manifest_json = json.dumps(manifest_data, ensure_ascii=False, indent=2)
+
+    if no_zip:
         folder_dir = ctx.output_dir / ctx.plugin_name
         folder_dir.mkdir(parents=True, exist_ok=True)
         (folder_dir / "manifest.json").write_text(

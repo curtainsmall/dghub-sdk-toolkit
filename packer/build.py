@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parent
 
 TAG_PREFIX = "v"
 
-# _version.py 归属后端（GUI 关于页与 CLI --version 共用），仅构建期生成
+# _version.py 归属后端（GUI 关于页读取），仅构建期生成
 _VERSION_PATH = ROOT / "src" / "backend" / "_version.py"
 _SPEC = ROOT / "packer.spec"
 _ISS = ROOT / "installer.iss"
