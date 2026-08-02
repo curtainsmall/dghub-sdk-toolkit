@@ -1,4 +1,4 @@
-# Whitelist approach: ignore all, then un-ignore tracked content
+﻿# Whitelist approach: ignore all, then un-ignore tracked content
 *
 
 # Root files
@@ -39,3 +39,6 @@ output/
 .mypy_cache/
 .ruff_cache/
 .coverage
+
+# Re-ignore local project state
+.dghub-sdk/

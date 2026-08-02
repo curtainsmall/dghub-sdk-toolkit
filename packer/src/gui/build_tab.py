@@ -1,8 +1,8 @@
-"""Build tab — 打包内容与发布选项（纯 GUI 工具的单视图构建页）。
+﻿"""Build tab — 打包内容与发布选项（纯 GUI 工具的单视图构建页）。
 
 - 打包内容：统一文件选择列表（文件 / 目录 / 规则三种条目，标签标记入口）
   +「添加文件」/「添加目录」（常规系统选择器）+「添加规则」+「从编译填充」
-- 发布选项：No Zip 复选框 + 预览树（输出目录在顶部栏）
+- 发布选项：文件夹模式 (No Zip) 复选框 + 预览树（输出目录在顶部栏）
 """
 
 from pathlib import Path
@@ -156,7 +156,7 @@ class BuildTab(ctk.CTkFrame):
                      font=ctk.CTkFont(size=14, weight="bold")).grid(
             row=0, column=0, sticky="w", padx=10, pady=(10, 5))
         self._no_zip_cb = ctk.CTkCheckBox(
-            right, text="No Zip（输出文件夹模式，勾选 = 本地调试）",
+            right, text="不压缩",
             variable=self._no_zip_var, command=self._on_no_zip_changed)
         self._no_zip_cb.grid(row=1, column=0, sticky="w", padx=10, pady=2)
         self._controls.append(self._no_zip_cb)
@@ -589,7 +589,7 @@ class BuildTab(ctk.CTkFrame):
         self._refresh_preview()
 
     def save_settings(self) -> None:
-        """保存 No Zip（builder 节）到 project.json。"""
+        """保存文件夹模式 No Zip（builder 节）到 project.json。"""
         if not self._pm:
             return
         project = self._pm.read_project()
@@ -634,12 +634,19 @@ class BuildTab(ctk.CTkFrame):
         plugin_name = Path(self._plugin_dir).name if self._plugin_dir else "插件名"
         lines: list[str] = []
         lines.append("=" * 30)
-        lines.append(f"输出目录: {out_dir or f'（默认 {plugin_name}/output/）'}")
+        # 输出目录始终显示绝对路径、独占一行、格式统一（尾部带 "/"，
+        # 与顶部栏 _norm_dir 目录风格一致）：显式传入的可能无尾部斜杠
+        # （to_absolute / askdirectory），统一补上——任何刷新入口
+        # （含点「不压缩」触发的无参刷新）显示一致，行内容不随入口变化
+        default_out = (Path(self._plugin_dir) / "output").as_posix() \
+            if self._plugin_dir else "（未选择插件目录）"
+        shown_out = (out_dir or default_out).rstrip("/") + "/"
+        lines.append(f"输出目录: {shown_out}")
 
         entry = "（未设置）"
         no_zip = self._no_zip_var.get()
         if no_zip:
-            lines.append(f"  {plugin_name}/  ← 文件夹（调试）")
+            lines.append(f"  {plugin_name}/  ← 文件夹")
         else:
             lines.append(f"  {plugin_name}.zip  ← 分发包")
 
