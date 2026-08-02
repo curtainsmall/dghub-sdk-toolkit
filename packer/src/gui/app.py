@@ -11,6 +11,11 @@ def _norm(p: str) -> str:
     """Normalize path separators to forward slashes."""
     return Path(p).as_posix()
 
+
+def _norm_dir(p: str) -> str:
+    """显示用目录路径：正斜杠 + 尾部 "/"。"""
+    return _norm(p).rstrip("/") + "/"
+
 import customtkinter as ctk
 
 from gui.distribute_tab import DistributeTab
@@ -218,18 +223,18 @@ class App(ctk.CTk):
         if not d:
             return
         self._output_dir = d
-        self._out_label.configure(text=_norm(d), text_color=("gray10", "gray90"))
+        self._out_label.configure(text=_norm_dir(d), text_color=("gray10", "gray90"))
         self._output_auto = False
         self._out_path_frame.configure(border_width=0)
         self._set_reset_visible(self._out_reset_btn, True)
-        self._dist_view.refresh_preview(_norm(d))
+        self._dist_view.refresh_preview(_norm_dir(d))
         self._save_output_dir(_norm(d))
         self._clear_field_error("构建", self._out_path_frame)
 
     def _reset_output_dir(self) -> None:
         """Reset output dir to default (plugin_dir/output)."""
         if self._plugin_dir:
-            default_out = _norm(Path(self._plugin_dir) / "output")
+            default_out = _norm_dir(Path(self._plugin_dir) / "output")
             self._output_dir = default_out
             self._out_label.configure(text=default_out, text_color=("gray60", "gray60"))
             self._output_auto = True
@@ -564,7 +569,7 @@ class App(ctk.CTk):
             if not d:
                 return
         self._plugin_dir = d
-        self._dir_label.configure(text=_norm(d), text_color=("gray10", "gray90"))
+        self._dir_label.configure(text=_norm_dir(d), text_color=("gray10", "gray90"))
         self._dir_path_frame.configure(border_width=0)
 
         # Initialize project manager（旧格式破坏性升级：重置为默认值并日志提示）
@@ -592,11 +597,11 @@ class App(ctk.CTk):
         saved_out = project.get("builder", {}).get("output_dir", "")
         if saved_out:
             self._output_dir = self._pm.to_absolute(saved_out)
-            self._out_label.configure(text=_norm(self._output_dir),
+            self._out_label.configure(text=_norm_dir(self._output_dir),
                                       text_color=("gray10", "gray90"))
             self._output_auto = False
         else:
-            default_out = _norm(Path(d) / "output")
+            default_out = _norm_dir(Path(d) / "output")
             self._out_label.configure(text=default_out, text_color=("gray60", "gray60"))
             self._output_dir = default_out
             self._output_auto = True
@@ -618,11 +623,17 @@ class App(ctk.CTk):
         if applied is None:
             self._logger.warning("当前没有启用的编译"
                                  "（请先在「编译」页选择编译）")
+            self._dist_view.show_fill_result(0)
         elif not applied:
             self._logger.info("当前编译设置不足以推导构建内容，请手动添加")
+            self._dist_view.show_fill_result(0)
         else:
             for line in applied:
                 self._logger.info(f"已应用: {line}")
+            # 按钮左侧反馈：本次 deduce 实际添加的文件数（绿 = 有添加）
+            added = sum(1 for l in applied
+                        if l.startswith("添加打包内容"))
+            self._dist_view.show_fill_result(added)
             # 刷新两页显示（编译设置 / 打包内容列表 / 预览）
             self._producer_view.set_plugin_dir(self._plugin_dir, self._pm)
             self._dist_view.set_plugin_dir(self._plugin_dir, self._pm)

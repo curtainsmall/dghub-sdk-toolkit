@@ -92,12 +92,17 @@ class DistributeTab(ctk.CTkFrame):
         dir_btn.pack(side="left", padx=(5, 0))
         rule_btn = ctk.CTkButton(add_frame, text="添加规则", width=90,
                                  command=self._show_rule_input)
-        rule_btn.pack(side="left", padx=(10, 0))
+        rule_btn.pack(side="left", padx=(5, 0))
         fill_btn = ctk.CTkButton(
             left, text="从编译填充", width=110,
             command=self._fill_builder_clicked)
-        fill_btn.grid(row=0, column=2, columnspan=2, sticky="w",
+        fill_btn.grid(row=0, column=3, sticky="w",
                       padx=(5, 10), pady=(16, 5))
+        # 填充反馈：位于按钮左侧（绿 = 有添加；黄 = 无变化）；固定宽度防布局移动
+        self._fill_hint_lbl = ctk.CTkLabel(
+            left, text="", width=130, font=ctk.CTkFont(size=11), anchor="e")
+        self._fill_hint_lbl.grid(row=0, column=2, sticky="e",
+                                 padx=(5, 0), pady=(16, 5))
         self._controls.extend([file_btn, dir_btn, rule_btn, fill_btn])
 
         # 添加提示（如项目根外文件被跳过），有内容才显示
@@ -231,9 +236,17 @@ class DistributeTab(ctk.CTkFrame):
         except ValueError:
             return None
 
-    def _show_add_hint(self, msg: str) -> None:
-        """显示添加提示，3 秒后自动清除（无内容不占位）。"""
-        self._add_hint_lbl.configure(text=msg)
+    def show_fill_result(self, added: int) -> None:
+        """「从编译填充」反馈（按钮左侧）：添加 N 个文件；绿 = 有添加、黄 = 无变化。"""
+        self._fill_hint_lbl.configure(
+            text=f"已添加 {added} 个文件",
+            text_color=("#2E7D32", "#4CAF50") if added > 0
+            else ("#B8860B", "#E8C547"))
+
+    def _show_add_hint(self, msg: str,
+                       color: str | tuple[str, str] = "#FF4444") -> None:
+        """显示提示，3 秒后自动清除（无内容不占位）。"""
+        self._add_hint_lbl.configure(text=msg, text_color=color)
         self._add_hint_lbl.grid()
         try:
             self.after(
@@ -303,12 +316,22 @@ class DistributeTab(ctk.CTkFrame):
                              font=ctk.CTkFont(size=10, weight="bold"),
                              fg_color=kbg, text_color=kfg,
                              corner_radius=4).pack(side="left")
-            display = rel if kind != "dir" else rel.rstrip("/\\") + "\\"
             is_error = rel in self._error_rels
+            is_derived = bool(item.get("derived"))
+            if is_derived:
+                # 编译产物：显示相对插件目录的路径（输出目录/.pyi/<插件名>/...）
+                out_rel = (b.get_output_dir() or "output").rstrip("/\\")
+                display = f"{out_rel}/.pyi/{Path(self._plugin_dir).name}/{rel}"
+                if kind == "dir":
+                    display += "/"
+            else:
+                display = rel if kind != "dir" else rel.rstrip("/\\") + "/"
             ctk.CTkLabel(inner, text=display, anchor="w",
                          font=ctk.CTkFont(family="Consolas", size=13,
                                           weight="bold"),
-                         text_color=("#FF4444" if is_error else None)
+                         text_color=("#FF4444" if is_error
+                                     else ("gray55", "gray45")
+                                     if is_derived else None)
                          ).pack(side="left", fill="x", expand=True,
                                 padx=(8, 6))
             # 入口徽章：位于文件名右侧（仍左对齐区域）
@@ -319,29 +342,37 @@ class DistributeTab(ctk.CTkFrame):
                              fg_color=tbg, text_color=tfg,
                              corner_radius=4).pack(side="left",
                                                     padx=(2, 0))
+            if is_derived:
+                ctk.CTkLabel(inner, text="编译产物", width=56,
+                             font=ctk.CTkFont(size=10),
+                             fg_color=("gray80", "gray30"),
+                             text_color=("gray25", "gray75"),
+                             corner_radius=4).pack(side="left", padx=(2, 0))
 
-            # 右侧按钮：✕ 最右
-            ctk.CTkButton(
-                inner, text="✕", width=26, height=24,
-                fg_color="transparent",
-                hover_color=("#FF6B6B", "#B34040"),
-                font=ctk.CTkFont(size=12),
-                command=lambda i=i: self._remove_item(i)).pack(
-                side="right", padx=(2, 0))
+            # 右侧按钮：✕ 最右（derived 只读，不显示）
+            if not is_derived:
+                ctk.CTkButton(
+                    inner, text="✕", width=26, height=24,
+                    fg_color="transparent",
+                    hover_color=("#FF6B6B", "#B34040"),
+                    font=ctk.CTkFont(size=12),
+                    command=lambda i=i: self._remove_item(i)).pack(
+                    side="right", padx=(2, 0))
 
-            # 整行可双击（递归绑定所有非按钮子控件；✕ 保留自身 command）
-            def _bind_row_click(w: ctk.CTkBaseClass, idx: int) -> None:
-                for child in w.winfo_children():
-                    if isinstance(child, ctk.CTkButton):
-                        continue
-                    child.bind(
-                        "<Double-1>",
-                        lambda e, i=idx: self._edit_item(i))
-                    _bind_row_click(child, idx)
+            # 整行可双击（derived 只读不绑定；✕ 保留自身 command）
+            if not is_derived:
+                def _bind_row_click(w: ctk.CTkBaseClass, idx: int) -> None:
+                    for child in w.winfo_children():
+                        if isinstance(child, ctk.CTkButton):
+                            continue
+                        child.bind(
+                            "<Double-1>",
+                            lambda e, i=idx: self._edit_item(i))
+                        _bind_row_click(child, idx)
 
-            row.bind("<Double-1>",
-                     lambda e, i=i: self._edit_item(i))
-            _bind_row_click(row, i)
+                row.bind("<Double-1>",
+                         lambda e, i=i: self._edit_item(i))
+                _bind_row_click(row, i)
 
             # hover 高亮：进入行区域时提升底色，离开恢复斑马底色
             hover_color = ("#D6E4F2", "gray28")
@@ -431,8 +462,11 @@ class DistributeTab(ctk.CTkFrame):
         result: list = []
 
         def _display(path: Path) -> str:
-            """文件选择器风格显示：Windows 反斜杠分隔。"""
-            return str(path).replace("/", "\\")
+            """文件选择器风格显示：Windows 反斜杠分隔；目录尾部加 "\\"。"""
+            s = str(path).replace("/", "\\")
+            if kind == "dir":
+                s = s.rstrip("\\") + "\\"
+            return s
 
         def _set_path_display(rel2: str) -> None:
             """刷新路径框显示（只读）。"""
@@ -627,8 +661,10 @@ class DistributeTab(ctk.CTkFrame):
                     tree.append(
                         f"    ├── {rel}（规则）→ {', '.join(names)} {extra}")
                 else:
-                    mark = " ← 入口" if is_entry else ""
-                    tree.append(f"    ├── {rel}{mark}")
+                    mark = " ← 编译产物" if item.get("derived") \
+                        else (" ← 入口" if is_entry else "")
+                    shown = rel if kind != "dir" else rel.rstrip("/\\") + "/"
+                    tree.append(f"    ├── {shown}{mark}")
         if tree:
             tree[-1] = tree[-1].replace("├──", "└──", 1)
         lines.extend(tree)

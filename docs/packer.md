@@ -66,10 +66,11 @@ Python 编译的产物是 onedir 树（`<名>.exe` + `_internal/`），收集时
 - **自定义命令** — 编译命令必填（如 `dotnet build -c Release`），构建时先在执行目录执行（默认项目根），非零返回码视为构建失败；执行目录行仅在填写命令后可用
 
 「从编译填充构建内容」按钮（构建页）串联探测与推导：Python 编译会自动
-探测 `pyproject.toml`（建议清单）并推导打包内容
-中的入口条目（`<插件名>.exe`）；只填空，不覆盖已有设置。
-编译入口（`.py` 源码）由 Python 编译从 `pyproject.toml` 的
-`[tool.dghub].entry` 现读，不入 project.json。
+探测 `pyproject.toml`（建议清单）并把**编译产物显式声明**为打包内容条目
+——入口 exe（`<插件名>.exe`）与依赖目录 `_internal/`（标注「编译产物」、
+只读不可编辑/删除）；只填空，不覆盖已有设置。
+编译入口（`.py` 源码）由用户在 `pyproject.toml` 的
+`[tool.dghub].entry` 中声明，Packer 构建时读取，不入 project.json。
 
 ### 构建
 

@@ -235,12 +235,21 @@ class PythonProducer(Producer):
 
     def deduce(self, cfg: dict[str, Any],
                 plugin_name: str = "") -> Optional[list[dict[str, Any]]]:
-        """manifest 已选 → 推导 entry 条目（产物名 = <插件名>.exe）。"""
+        """manifest 已选 → 推导编译产物条目（显式声明，derived 只读）。
+
+        - 入口 exe（<插件名>.exe，entry 标签）
+        - _internal/ 依赖目录（PyInstaller onedir 产物）
+        两者均为编译产出，构建时从产物树解析。
+        """
         if not cfg.get("manifest"):
             return None
         if not plugin_name:
             return None
-        return [{"path": f"{plugin_name}.exe", "tags": ["entry"]}]
+        return [
+            {"path": f"{plugin_name}.exe", "tags": ["entry"],
+             "derived": True},
+            {"dir": "_internal", "derived": True},
+        ]
 
     def run(self, ctx: ProducerContext) -> bool:
         manifest = ctx.cfg.get("manifest", "")

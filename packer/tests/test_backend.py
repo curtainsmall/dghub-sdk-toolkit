@@ -211,7 +211,8 @@ def test_python_producer_probe(tmp_path):
 def test_python_producer_deduce(make_project):
     py = get_producer("python")
     assert py.deduce({"manifest": "pyproject.toml"}, "my-plugin") == [
-        {"path": "my-plugin.exe", "tags": ["entry"]}]
+        {"path": "my-plugin.exe", "tags": ["entry"], "derived": True},
+        {"dir": "_internal", "derived": True}]
     assert py.deduce({"manifest": ""}, "my-plugin") is None
     cmd = get_producer("command")
     assert cmd.deduce({"compile": "x"}, "my-plugin") is None
@@ -281,9 +282,15 @@ def test_fill_builder_only_fills_empty(make_project, make_ctx):
     applied = fill_builder(ctx)
     assert applied and any("入口" in a for a in applied)
     assert b.entry_errors(plugin_dir) == []
+    # 编译产物条目：exe（入口）+ _internal/（derived）
+    items = b.items()
+    assert len(items) == 2
+    assert items[0] == {"path": "testplugin.exe", "tags": ["entry"],
+                        "derived": True}
+    assert items[1] == {"dir": "_internal", "derived": True}
     # 再次 fill 不重复添加
     fill_builder(ctx)
-    assert len(b.items()) == 1
+    assert len(b.items()) == 2
     # 无编译 → None
     ctx2, _ = make_ctx(pm, b, plugin_dir, producer_id="")
     assert fill_builder(ctx2) is None

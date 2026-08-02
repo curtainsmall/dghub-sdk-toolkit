@@ -259,7 +259,7 @@ class ProducerTab(ctk.CTkFrame):
 
     def _refresh_exec_display(self) -> None:
         if self._compile_dir:
-            text = Path(self._compile_dir).as_posix()
+            text = Path(self._compile_dir).as_posix().rstrip("/") + "/"
             color = ("gray10", "gray90")
             self._exec_reset_btn.grid()  # 非默认才显示重置
         else:

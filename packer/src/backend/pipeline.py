@@ -62,6 +62,12 @@ def fill_builder(ctx: BuildContext) -> Optional[list[str]]:
     if proc is None or ctx.pm is None:
         return None
 
+    # 0) 先清空既有 derived（编译产物）条目——它们随编译系统/配置变化，
+    #    一律以本次 deduce 结果为准重建；用户条目不受影响
+    removed = ctx.builder.remove_derived()
+    if removed:
+        applied.append(f"已刷新 {removed} 个编译产物条目")
+
     # 1) probe：编译设置为空时探测项目，建议编译设置（落盘）
     if not ctx.producer_cfg.get("manifest") \
             and not ctx.producer_cfg.get("compile"):
@@ -71,15 +77,20 @@ def fill_builder(ctx: BuildContext) -> Optional[list[str]]:
                 ctx.pm.set_field(key, value)
                 applied.append(f"{key} = {value}")
 
-    # 2) deduce：建议 Builder 条目（只填空——已存在 entry 条目不重复添加）
+    # 2) deduce：建议编译产物条目（只填空——已存在 entry 条目不重复添加）
     items = ctx.builder.items()
     has_entry = any("entry" in it.get("tags", []) for it in items)
     deduced = proc.deduce(ctx.producer_cfg, ctx.plugin_name)
     if deduced and not has_entry:
         for item in deduced:
             if "path" in item:
-                ctx.builder.add_file(item["path"], item.get("tags"))
+                ctx.builder.add_file(item["path"], item.get("tags"),
+                                     derived=bool(item.get("derived")))
                 applied.append(f"添加打包内容: {item['path']}（入口）")
+            elif "dir" in item:
+                ctx.builder.add_dir(item["dir"], item.get("tags"),
+                                    derived=bool(item.get("derived")))
+                applied.append(f"添加打包内容: {item['dir']}（编译产物）")
 
     return applied
 
@@ -115,22 +126,19 @@ def run_build(ctx: BuildContext, manifest_data: dict[str, Any]) -> Optional[Path
     # ---- 阶段 2：收集 + manifest + 打包 ----
     out_files: list[tuple[Path, str]] = []
 
-    # 编译产物树（PythonProducer：.pyi/<name>/ 整树平移到包根）
-    if ctx.producer_id == "python":
-        prod = ctx.output_dir / ".pyi" / ctx.plugin_name
-        if prod.is_dir():
-            for f in sorted(prod.rglob("*")):
-                if f.is_file():
-                    out_files.append((f, f.relative_to(prod).as_posix()))
-        else:
-            ctx.log.error(f"未找到打包产物: {prod}")
-            return None
+    # Python 编译产物树（derived 条目从 .pyi/<name>/ 解析）
+    prod_dir = ctx.output_dir / ".pyi" / ctx.plugin_name \
+        if ctx.producer_id == "python" else None
+    if ctx.producer_id == "python" and not prod_dir.is_dir():
+        ctx.log.error(f"未找到打包产物: {prod_dir}")
+        return None
 
     # Builder 条目（arc 保留相对路径）；无实际编译输入时入口缺失不豁免
     out_files += ctx.builder.resolve(
         ctx.source_dir,
         entry_exempt=bool(ctx.producer_cfg.get("compile")
-                          or ctx.producer_cfg.get("manifest")))
+                          or ctx.producer_cfg.get("manifest")),
+        prod_dir=prod_dir)
 
     # manifest：entry = entry 标签条目的 arc（validate 已保证恰好一个）
     entry_item = ctx.builder.entry_item()

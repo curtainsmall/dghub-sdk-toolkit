@@ -1,12 +1,24 @@
 {
   "format_version": 2,
-  "compile_system": "command",
+  "compile_system": "python",
   "compile": "",
   "compile_dir": "",
   "manifest": "pyproject.toml",
   "include_sdk": true,
   "builder": {
-    "files": [],
+    "files": [
+      {
+        "path": "tetris.exe",
+        "tags": [
+          "entry"
+        ],
+        "derived": true
+      },
+      {
+        "dir": "_internal",
+        "derived": true
+      }
+    ],
     "no_zip": false,
     "output_dir": ""
   }
