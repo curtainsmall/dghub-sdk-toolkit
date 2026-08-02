@@ -44,9 +44,8 @@ class BuildContext:
 def validate(ctx: BuildContext) -> list[str]:
     """静态校验：编译必要字段、Builder 必要条目（entry 由编译系统自持）。"""
     errors: list[str] = []
-    comp = get_compiler(ctx.compile_system)
-    if comp is not None:
-        errors += comp.validate(ctx.compile_cfg, ctx.source_dir)
+    comp = get_compiler(ctx.compile_system)  # 恒非 None（含「无」）
+    errors += comp.validate(ctx.compile_cfg, ctx.source_dir)
     errors += ctx.builder.entry_errors(ctx.source_dir)
     return errors
 
@@ -55,18 +54,18 @@ def fill_builder(ctx: BuildContext) -> Optional[list[str]]:
     """「从编译填充」：probe + deduce 串联，只填空。
 
     将建议落盘（编译设置字段 / Builder 条目），
-    返回已应用的描述列表；无编译返回 None（调用方提示）。
+    返回已应用的描述列表；无编译返回空列表（调用方提示）。
     """
     applied: list[str] = []
-    comp = get_compiler(ctx.compile_system)
-    if comp is None or ctx.pm is None:
-        return None
+    comp = get_compiler(ctx.compile_system)  # 恒非 None（含「无」）
 
-    # 0) 先清空既有 derived（编译产物）条目——它们随编译系统/配置变化，
-    #    一律以本次 deduce 结果为准重建；用户条目不受影响
+    # 0) 先清空既有 derived——无论是否有编译（切到「无」时也清，旧产物已失效）
     removed = ctx.builder.remove_derived()
     if removed:
         applied.append(f"已刷新 {removed} 个编译产物条目")
+
+    if ctx.pm is None:
+        return applied  # 无项目：可能清除了旧 derived，列表非空时调用方展示
 
     # 1) probe：编译设置为空时探测项目，建议编译设置（落盘）
     if not ctx.compile_cfg.get("manifest") \
@@ -107,21 +106,20 @@ def run_build(ctx: BuildContext, manifest_data: dict[str, Any]) -> Optional[Path
             ctx.log.error(msg)
         return None
 
-    # ---- 阶段 1：compile 编译 ----
+    # ---- 阶段 1：compile 编译（「无」编译 = 空操作）----
     comp = get_compiler(ctx.compile_system)
-    if comp is not None:
-        pctx = CompilerContext(
-            plugin_dir=ctx.plugin_dir,
-            source_dir=ctx.source_dir,
-            output_dir=ctx.output_dir,
-            plugin_name=ctx.plugin_name,
-            cfg=ctx.compile_cfg,
-            log=ctx.log,
-            pypi_index=ctx.pypi_index,
-            canceller=ctx.canceller,
-        )
-        if not comp.run(pctx):
-            return None
+    pctx = CompilerContext(
+        plugin_dir=ctx.plugin_dir,
+        source_dir=ctx.source_dir,
+        output_dir=ctx.output_dir,
+        plugin_name=ctx.plugin_name,
+        cfg=ctx.compile_cfg,
+        log=ctx.log,
+        pypi_index=ctx.pypi_index,
+        canceller=ctx.canceller,
+    )
+    if not comp.run(pctx):
+        return None
 
     # ---- 阶段 2：收集 + manifest + 打包 ----
     out_files: list[tuple[Path, str]] = []

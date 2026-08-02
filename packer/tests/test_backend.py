@@ -250,9 +250,12 @@ def test_python_compiler_validate(make_project):
 
 
 def test_compiler_registry():
-    assert set(COMPILERS) == {"python", "command"}
-    assert get_compiler("") is None
-    assert get_compiler("unknown") is None
+    assert set(COMPILERS) == {"", "python", "command"}
+    # 「无」也是合法编译系统：空串/未知 id 恒返回实例（非 None）
+    none_comp = get_compiler("")
+    assert none_comp.id == "" and none_comp.label == "无"
+    assert get_compiler("unknown") is none_comp
+    assert none_comp.run(object()) is True  # 阶段 1 空操作
 
 
 # ---------------------------------------------------------------------------
@@ -292,9 +295,11 @@ def test_fill_builder_only_fills_empty(make_project, make_ctx):
     # 再次 fill 不重复添加
     fill_builder(ctx)
     assert len(b.items()) == 2
-    # 无编译 → None
+    # 无编译 → 也清除旧 derived，返回清除提示（非 None）
     ctx2, _ = make_ctx(pm, b, plugin_dir, compile_system="")
-    assert fill_builder(ctx2) is None
+    applied = fill_builder(ctx2)
+    assert applied and any("已刷新" in a for a in applied)
+    assert len(b.items()) == 0  # derived 全清，用户条目无
 
 
 def test_run_build_no_compile(make_project, make_ctx):

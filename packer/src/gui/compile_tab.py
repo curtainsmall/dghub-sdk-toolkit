@@ -1,4 +1,4 @@
-"""Compile tab — compile 编译选择与设置（下拉单选 + 字段联动）。
+﻿"""Compile tab — compile 编译选择与设置（下拉单选 + 字段联动）。
 
 编译由 ``compile_system`` 字段显式单选：""（无）/ "python" / "command"。
 选中后显示对应设置字段；一切语言相关解析（清单识别、[tool.dghub].entry）
@@ -235,7 +235,7 @@ class CompileTab(ctk.CTkFrame):
         # 类型标注：可识别 = 绿色 ✓；否则浅红警示
         comp = get_compiler("python")
         name = Path(f).name
-        if comp is not None and comp.is_known_manifest(name):
+        if comp.is_known_manifest(name):
             self._manifest_label.configure(text=f"✓ {name}", text_color="green")
         else:
             self._manifest_label.configure(
@@ -332,7 +332,7 @@ class CompileTab(ctk.CTkFrame):
                 if manifest:
                     comp = get_compiler("python")
                     name = Path(manifest).name
-                    if comp is not None and comp.is_known_manifest(name):
+                    if comp.is_known_manifest(name):
                         self._manifest_label.configure(
                             text=f"✓ {name}", text_color="green")
                     else:

@@ -21,6 +21,7 @@ import customtkinter as ctk
 from gui.build_tab import BuildTab
 from gui.compile_tab import CompileTab
 from backend.builder import BuildError, Builder
+from backend.compilers import get_compiler
 from backend.pipeline import BuildContext, fill_builder, run_build, validate
 from backend.packaging import cleanup_intermediates
 from gui.log_tab import LogTab
@@ -620,22 +621,21 @@ class App(ctk.CTk):
         self._dist_view.save_settings()
         ctx = self._make_build_context()
         applied = fill_builder(ctx)
-        if applied is None:
+        # 「无」编译 = compile_system 空串（合法编译系统 id）
+        no_compile = (ctx.compile_system == "")
+        if no_compile:
             self._logger.warning("当前没有启用的编译"
                                  "（请先在「编译」页选择编译）")
-            self._dist_view.show_fill_result(0)
         elif not applied:
             self._logger.info("当前编译设置不足以推导构建内容，请手动添加")
-            self._dist_view.show_fill_result(0)
-        else:
-            for line in applied:
-                self._logger.info(f"已应用: {line}")
-            # 按钮左侧反馈：本次 deduce 实际添加的文件数（绿 = 有添加）
-            added = sum(1 for l in applied
-                        if l.startswith("添加打包内容"))
-            self._dist_view.show_fill_result(added)
-            # 刷新两页显示（编译设置 / 打包内容列表 / 预览）
-            self._compile_view.set_plugin_dir(self._plugin_dir, self._pm)
+        # 任何分支产生的 applied 行都记入日志
+        for line in applied:
+            self._logger.info(f"已应用: {line}")
+        # 按钮左侧反馈：本次 deduce 实际添加的文件数（绿 = 有添加）
+        added = sum(1 for l in applied if l.startswith("添加打包内容"))
+        self._dist_view.show_fill_result(0 if no_compile else added)
+        # 只要有任何变化（含清除旧 derived）就刷新列表
+        if applied:
             self._dist_view.set_plugin_dir(self._plugin_dir, self._pm)
             self._dist_view.refresh_preview(self._output_dir)
     

@@ -327,10 +327,29 @@ def read_tool_dghub_entry(manifest: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
+# NoneCompiler：「无」编译系统（合法注册的空操作实现）
+# ---------------------------------------------------------------------------
+
+class NoneCompiler(Compiler):
+    """「无」编译系统：不探测 / 不推导 / 不编译（阶段 1 空操作）。
+
+    注册为合法编译系统（id 为空串），使 ``get_compiler`` 恒返回实例，
+    调用方无需再判 None——deduce/validate/probe 均走基类默认（空/无）。
+    """
+
+    id = ""
+    label = "无"
+
+    def run(self, ctx: CompilerContext) -> bool:
+        return True  # 无阶段 1 工作，直接进入收集
+
+
+# ---------------------------------------------------------------------------
 # 注册表
 # ---------------------------------------------------------------------------
 
 COMPILERS: dict[str, Compiler] = {
+    "": NoneCompiler(),
     "python": PythonCompiler(),
     "command": CommandCompiler(),
 }
@@ -343,8 +362,6 @@ COMPILER_CHOICES: tuple[tuple[str, str], ...] = (
 )
 
 
-def get_compiler(compile_system: str) -> Optional[Compiler]:
-    """按 id 取编译（空串或未知返回 None）。"""
-    if not compile_system:
-        return None
-    return COMPILERS.get(compile_system)
+def get_compiler(compile_system: str) -> Compiler:
+    """按 id 取编译；空串 / 未知 id 回退「无」编译器（恒非 None）。"""
+    return COMPILERS.get(compile_system, COMPILERS[""])
