@@ -186,9 +186,9 @@ class PythonProducer(Producer):
         return bool(cfg.get("manifest"))
 
     def is_known_manifest(self, filename: str) -> bool:
-        name = filename.lower()
-        return name in ("pyproject.toml", "setup.py", "setup.cfg") or (
-            name.startswith("requirements") and name.endswith(".txt"))
+        # Python 编译需要声明入口（[tool.dghub].entry）——仅 pyproject.toml
+        # 支持该表；requirements.txt / setup.py 等无法声明，不接受
+        return filename.lower() == "pyproject.toml"
 
     def probe(self, plugin_dir: Path) -> Optional[dict[str, Any]]:
         """探测 pyproject.toml → 建议 manifest / include_sdk。"""
@@ -217,8 +217,8 @@ class PythonProducer(Producer):
         manifest = cfg.get("manifest", "")
         if manifest and not self.is_known_manifest(Path(manifest).name):
             errors.append(f"无法识别的依赖清单: {Path(manifest).name}"
-                          "（支持 pyproject.toml / setup.py / setup.cfg / "
-                          "requirements*.txt）")
+                          "（Python 编译仅支持 pyproject.toml——"
+                          "唯一可声明 [tool.dghub].entry 的清单）")
         # entry 是 Python 编译专属输入（pyproject [tool.dghub].entry），
         # 由本编译系统从清单现读，不入 project.json
         entry = read_tool_dghub_entry(Path(source_dir) / manifest) \

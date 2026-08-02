@@ -21,6 +21,13 @@ PYPI_INDEX_PRESETS: dict[str, str] = {
     "中科大 (ustc)": "https://mirrors.ustc.edu.cn/pypi/simple",
 }
 
+# 外观模式选项：显示名 → customtkinter 值（默认深色）
+_THEME_CHOICES: list[tuple[str, str]] = [
+    ("跟随系统", "system"),
+    ("浅色", "light"),
+    ("深色", "dark"),
+]
+
 
 class SettingsTab(ctk.CTkFrame):
     """Settings and about page."""
@@ -105,10 +112,11 @@ class SettingsTab(ctk.CTkFrame):
         ctk.CTkLabel(theme_frame, text="外观模式:").grid(
             row=1, column=0, sticky="w", padx=(10, 5), pady=10)
         theme_menu = ctk.CTkOptionMenu(
-            theme_frame, values=["system", "light", "dark"],
-            command=ctk.set_appearance_mode)
+            theme_frame, values=[label for label, _ in _THEME_CHOICES],
+            command=self._on_theme_changed)
         theme_menu.grid(row=1, column=1, sticky="w", padx=5, pady=10)
-        theme_menu.set("system")
+        theme_menu.set("深色")  # 默认深色
+        ctk.set_appearance_mode("dark")
 
         # -- Build (PyPI index) --
         build_frame = ctk.CTkFrame(self)
@@ -129,7 +137,7 @@ class SettingsTab(ctk.CTkFrame):
 
         ctk.CTkLabel(
             build_frame,
-            text="打包依赖到 vendor/ 时使用的下载源；网络无法访问官方源时"
+            text="打包依赖（uv 下载）时使用的下载源；网络无法访问官方源时"
                  "可切换为国内镜像。",
             font=ctk.CTkFont(size=12),
             text_color=("gray30", "gray70"),
@@ -155,6 +163,11 @@ class SettingsTab(ctk.CTkFrame):
 
         # push remaining space
         self.grid_rowconfigure(row, weight=1)
+
+    def _on_theme_changed(self, label: str) -> None:
+        """外观模式选项变化 → 应用对应 customtkinter 值。"""
+        value = next((v for l, v in _THEME_CHOICES if l == label), "dark")
+        ctk.set_appearance_mode(value)
 
     def _pypi_changed(self, _label: str) -> None:
         """镜像源选项变化时通知外部（实时保存）。"""

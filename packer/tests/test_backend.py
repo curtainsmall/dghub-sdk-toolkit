@@ -220,10 +220,11 @@ def test_python_producer_deduce(make_project):
 
 def test_python_producer_manifest_known():
     py = get_producer("python")
-    for name in ("pyproject.toml", "setup.py", "setup.cfg",
-                 "requirements.txt", "requirements-dev.txt"):
-        assert py.is_known_manifest(name), name
-    assert not py.is_known_manifest("package.json")
+    # 仅 pyproject.toml（唯一可声明 [tool.dghub].entry 的清单）
+    assert py.is_known_manifest("pyproject.toml")
+    for name in ("setup.py", "setup.cfg", "requirements.txt",
+                 "requirements-dev.txt", "package.json"):
+        assert not py.is_known_manifest(name), name
 
 
 def test_python_producer_validate(make_project):

@@ -224,10 +224,9 @@ class ProducerTab(ctk.CTkFrame):
         if not self._plugin_dir:
             return
         f = filedialog.askopenfilename(
-            title="选择依赖清单（pyproject.toml / requirements*.txt）",
+            title="选择依赖清单（pyproject.toml）",
             initialdir=self._plugin_dir,
-            filetypes=[("依赖清单", ("pyproject.toml", "setup.py",
-                                     "setup.cfg", "requirements*.txt")),
+            filetypes=[("依赖清单", ("pyproject.toml",)),
                        ("所有文件", "*.*")])
         if not f:
             return
