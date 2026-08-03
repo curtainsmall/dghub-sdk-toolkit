@@ -2,6 +2,10 @@
 
 将整个异步生命周期封装在后台线程中。收到的服务端消息会先进入队列，
 在用户线程调用 ``poll()`` 时再分发到各回调。
+
+插件根与 manifest 目录定位：``plugin_root()``（模块级，@cache）返回插件根
+（显式参数原样 / ``DGHUB_PLUGIN_DIR`` env / frozen exe 目录 / caller 目录）；
+``Agent.manifest_dir`` 默认 = 插件根，支持 ``DGHUB_MANIFEST_DIR`` 注入（Packer 调试）。
 """
 
 import asyncio
@@ -10,11 +14,27 @@ import os
 import queue
 import sys
 import threading
+from functools import cache
 from pathlib import Path
 from typing import Any, Callable
 
 from .codec import Codec, CodecMessage
 from .enums import Action, Channel, CheckState, DeviceType, LogLevel, OpCode, StrengthMode
+
+
+@cache
+def plugin_root(plugin_dir: Path | None = None) -> Path:
+    """插件根：显式传入**原样返回**（用户负责，不解析不校验——谁先调用结果都相同）；
+    否则默认：DGHUB_PLUGIN_DIR env（约定绝对路径，resolve 兜底）→ frozen exe 目录
+    → caller 目录。进程内缓存。"""
+    if plugin_dir is not None:
+        return Path(plugin_dir)
+    env_dir = os.environ.get("DGHUB_PLUGIN_DIR")
+    if env_dir:
+        return Path(env_dir).resolve()   # 注入值约定为绝对路径，resolve 兜底（相对 cwd 归一化）
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(sys._getframe(1).f_code.co_filename).resolve().parent
 
 
 class Agent:
@@ -40,8 +60,10 @@ class Agent:
         """初始化 Agent。
 
         Args:
-            manifest_dir: 包含 ``manifest.json`` 的目录，默认为调用方
-                文件所在目录。
+            manifest_dir: 包含 ``manifest.json`` 的目录，默认为插件根
+                （frozen = exe 目录 / 源码 = 入口文件所在目录）；相对路径以
+                调用方文件目录为基准；支持 ``DGHUB_MANIFEST_DIR`` 环境变量
+                注入（Packer 调试，约定绝对路径）。
             max_retries: WebSocket 连接的最大重试次数。
             send_timeout: 每次发送操作的可选超时时间（秒）。
                 ``None`` 表示发完即返回（不阻塞等待）。
@@ -56,16 +78,19 @@ class Agent:
                 签名：``(reason: str) -> None``。
             on_ping: 收到服务端 ping 时调用，传入时间戳。
         """
-        # --- 解析 manifest 目录 ---
-        if manifest_dir is None:
-            caller_file = sys._getframe(1).f_code.co_filename
-            self._manifest_dir = Path(caller_file).resolve().parent
-        else:
+        # --- 解析 manifest 目录（显式 → DGHUB_MANIFEST_DIR → 插件根） ---
+        if manifest_dir is not None:
             self._manifest_dir = Path(manifest_dir)
             if not self._manifest_dir.is_absolute():
                 caller_file = sys._getframe(1).f_code.co_filename
-                base = Path(caller_file).resolve().parent
-                self._manifest_dir = (base / self._manifest_dir).resolve()
+                self._manifest_dir = (Path(caller_file).resolve().parent
+                                     / self._manifest_dir).resolve()
+        elif env_manifest := os.environ.get("DGHUB_MANIFEST_DIR"):
+            # 注入约定绝对路径（Packer 调试），resolve 兜底——不做 caller 相对解析
+            self._manifest_dir = Path(env_manifest).resolve()
+        else:
+            # 无显式无 env：直接用插件根（plugin_root()：env → frozen exe → caller）
+            self._manifest_dir = plugin_root()
 
         self._max_retries = max_retries
         self._send_timeout = send_timeout

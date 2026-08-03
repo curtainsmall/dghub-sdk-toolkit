@@ -11,7 +11,7 @@
                 raise exc
 """
 
-from .agent import Agent
+from .agent import Agent, plugin_root
 from .codec import Codec, CodecMessage
 from .enums import (
     Action, Channel, CheckState, DeviceType,
@@ -20,6 +20,7 @@ from .enums import (
 
 __all__ = [
     "Agent",
+    "plugin_root",
     "Codec",
     "CodecMessage",
     "Action",
