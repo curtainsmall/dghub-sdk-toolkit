@@ -113,14 +113,6 @@ class Compiler:
         """检查设置是否足以推导 Builder 条目；返回建议条目或 None。"""
         return None
 
-    def debug_source_command(self, plugin_dir: Path) -> Optional[list[str]]:
-        """「调试源码」启动命令；不支持返回 None。
-
-        返回的命令由调试页在插件根目录启动（cwd=plugin_dir），
-        结果 = 子进程退出码（stdout/stderr 进日志 tab）。
-        """
-        return None
-
     def run(self, ctx: CompilerContext) -> bool:
         """执行阶段 1 工作，产出文件；失败返回 False。"""
         raise NotImplementedError
@@ -258,13 +250,6 @@ class PythonCompiler(Compiler):
              "derived": True},
             {"dir": "_internal", "derived": True},
         ]
-
-    def debug_source_command(self, plugin_dir: Path) -> Optional[list[str]]:
-        """uv run --project 运行 [tool.dghub].entry 源码；entry 缺失返回 None。"""
-        entry = read_tool_dghub_entry(plugin_dir / "pyproject.toml")
-        if not entry:
-            return None
-        return ["uv", "run", "--project", str(plugin_dir), entry]
 
     def run(self, ctx: CompilerContext) -> bool:
         manifest = ctx.cfg.get("manifest", "")
