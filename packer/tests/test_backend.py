@@ -399,3 +399,54 @@ def test_packaging_cleanup(make_project):
     assert not (output / ".pyi").exists()
     assert not (output / "cache").exists()
     assert (output / "testplugin.zip").exists()  # 产物保留
+
+
+# ---------------------------------------------------------------------------
+# 调试：debug_source_command / detect_dghub / 调试构建产物定位
+# ---------------------------------------------------------------------------
+
+
+def test_debug_source_command_python(tmp_path):
+    """PythonCompiler：uv run 命令；entry 缺失返回 None。"""
+    py = get_compiler("python")
+    root = tmp_path / "p"
+    root.mkdir()
+    (root / "pyproject.toml").write_text(
+        "[tool.dghub]\nentry='src/main.py'\n")
+    assert py.debug_source_command(root) == [
+        "uv", "run", "--project", str(root), "src/main.py"]
+    assert py.debug_source_command(tmp_path / "empty") is None
+
+
+def test_debug_source_command_unsupported(make_project):
+    """CommandCompiler / NoneCompiler 默认不支持调试源码（None）。"""
+    assert get_compiler("command").debug_source_command(Path(".")) is None
+    assert get_compiler("").debug_source_command(Path(".")) is None
+
+
+def test_detect_dghub_unreachable():
+    """不可达端口返回 False（不抛异常）。"""
+    from backend.debug_runner import detect_dghub
+    assert detect_dghub("localhost", 1, timeout=0.2) is False
+
+
+def test_build_for_debug_folder(tmp_path, make_project, make_ctx):
+    """调试构建：强制 folder 产物到 插件目录/debug/，且不修改项目配置。"""
+    from backend.debug_runner import build_for_debug, locate_debug_entry
+    pm, b, plugin_dir = make_project()
+    (plugin_dir / "main.py").write_text("print('hi')\n")
+    b.add_file("main.py", ["entry"])
+    b.set_no_zip(False)          # 项目配置为 zip
+    ctx, _ = make_ctx(pm, b, plugin_dir, compile_system="",
+                      compile_cfg={})
+    ctx.output_dir = plugin_dir / "debug"
+    artifact = build_for_debug(ctx, {"id": "t", "name": "t"})
+    assert artifact is not None and artifact.is_dir()
+    assert artifact == plugin_dir / "debug" / "testplugin"
+    assert (artifact / "manifest.json").is_file()
+    assert (artifact / "main.py").is_file()
+    # 项目配置未被修改（no_zip 还原为 False）
+    assert b.get_no_zip() is False
+    # 入口定位
+    entry = locate_debug_entry(ctx, artifact)
+    assert entry == artifact / "main.py"
