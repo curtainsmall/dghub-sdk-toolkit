@@ -7,7 +7,7 @@
 版本号为 toolkit 发布批次号，Packer 与 SDK 统一使用；SDK 仅在自身有变更
 的批次发布至 PyPI（版本跳号为预期行为）。
 
-## [Unreleased]
+## [0.6.0]
 
 ### 新增
 
@@ -214,10 +214,3 @@
 ## [0.1.3] - 2026-07-27
 
 历史版本，详见 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases)。
-
-[0.5.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.4.0...v0.5.0
-[0.4.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.3.0...v0.4.0
-[0.3.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.2.1...v0.3.0
-[0.2.1]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.1.3...v0.2.0
-[0.1.3]: https://github.com/curtainsmall/dghub-sdk-toolkit/releases/tag/v0.1.3
