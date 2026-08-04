@@ -1,6 +1,7 @@
 """Settings / About tab."""
 
 import webbrowser
+from tkinter import messagebox
 from typing import Any, Callable, Optional
 
 import customtkinter as ctk
@@ -111,11 +112,11 @@ class SettingsTab(ctk.CTkFrame):
 
         ctk.CTkLabel(theme_frame, text="外观模式:").grid(
             row=1, column=0, sticky="w", padx=(10, 5), pady=10)
-        theme_menu = ctk.CTkOptionMenu(
+        self._theme_menu = ctk.CTkOptionMenu(
             theme_frame, values=[label for label, _ in _THEME_CHOICES],
             command=self._on_theme_changed)
-        theme_menu.grid(row=1, column=1, sticky="w", padx=5, pady=10)
-        theme_menu.set("深色")  # 默认深色
+        self._theme_menu.grid(row=1, column=1, sticky="w", padx=5, pady=10)
+        self._theme_menu.set("深色")  # 默认深色
         ctk.set_appearance_mode("dark")
 
         # -- Build (PyPI index) --
@@ -145,6 +146,21 @@ class SettingsTab(ctk.CTkFrame):
         ).grid(row=2, column=0, columnspan=2, sticky="w",
                padx=10, pady=(0, 10))
 
+        # -- Reset defaults --
+        reset_frame = ctk.CTkFrame(self)
+        reset_frame.grid(row=row, column=0, sticky="ew", padx=10, pady=5)
+        row += 1
+
+        ctk.CTkButton(reset_frame, text="恢复默认", width=120,
+                      command=self._reset_defaults).grid(
+            row=0, column=0, sticky="w", padx=10, pady=10)
+        ctk.CTkLabel(
+            reset_frame,
+            text="外观深色、镜像官方源。",
+            font=ctk.CTkFont(size=12),
+            text_color=("gray30", "gray70"),
+        ).grid(row=0, column=1, sticky="w", padx=(0, 10), pady=10)
+
         # -- License --
         license_frame = ctk.CTkFrame(self)
         license_frame.grid(row=row, column=0, sticky="ew", padx=10, pady=5)
@@ -168,6 +184,18 @@ class SettingsTab(ctk.CTkFrame):
         """外观模式选项变化 → 应用对应 customtkinter 值。"""
         value = next((v for l, v in _THEME_CHOICES if l == label), "dark")
         ctk.set_appearance_mode(value)
+
+    def _reset_defaults(self) -> None:
+        """恢复默认：外观深色、镜像官方源。"""
+        if not messagebox.askyesno(
+                "恢复默认",
+                "确定恢复全部默认设置？"):
+            return
+        self._theme_menu.set("深色")
+        ctk.set_appearance_mode("dark")
+        self._pypi_menu.set(next(iter(PYPI_INDEX_PRESETS)))
+        if self._on_pypi_index_changed:
+            self._on_pypi_index_changed("")
 
     def _pypi_changed(self, _label: str) -> None:
         """镜像源选项变化时通知外部（实时保存）。"""

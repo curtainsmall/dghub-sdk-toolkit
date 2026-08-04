@@ -203,7 +203,7 @@ class Agent:
 
     def __exit__(self, *args: Any) -> None:
         self.stop()
-        self.wait_threading_exit()
+        self.wait_threading_exit(timeout=5.0)
 
     # -- 公开发送方法（均为同步） --------------------------------------------
 
@@ -497,13 +497,21 @@ class Agent:
 
         # ---- 带重试的连接 ----
         for attempt in range(self._max_retries + 1):
+            if self._stopped:
+                raise ConnectionError(
+                    "Agent stopped before connection established")
             try:
                 self._ws = await websockets.connect(url)
                 break
             except (ConnectionRefusedError, TimeoutError, OSError) as exc:
                 if attempt < self._max_retries:
                     delay = min(2 ** attempt, 30)
-                    await asyncio.sleep(delay)
+                    # 分片等待：stop() 可在 0.5s 内中断退避重试
+                    for _ in range(int(delay / 0.5)):
+                        if self._stopped:
+                            raise ConnectionError(
+                                "Agent stopped before connection established")
+                        await asyncio.sleep(0.5)
                 else:
                     raise
 
