@@ -3,8 +3,10 @@
 「调试」tab 的后端逻辑：不接触前端；进程输出经 logbus 进日志 tab。
 """
 
+import json
 import socket
 import subprocess
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -15,7 +17,7 @@ from backend.winflags import _NO_WINDOW
 
 # 默认 DGHub 服务端地址（SDK 的 DGHUB_HOST/PORT 默认值同源）
 _DEFAULT_HOST = "localhost"
-_DEFAULT_PORT = 27020
+_DEFAULT_PORT = 8000
 
 
 def detect_dghub(host: str = _DEFAULT_HOST, port: int = _DEFAULT_PORT,
@@ -26,6 +28,21 @@ def detect_dghub(host: str = _DEFAULT_HOST, port: int = _DEFAULT_PORT,
             return True
     except OSError:
         return False
+
+
+def fetch_token(host: str = _DEFAULT_HOST, port: int = _DEFAULT_PORT,
+                timeout: float = 2.0) -> Optional[str]:
+    """从 DGHub 拉取会话 token（GET /api/plugins/_session_token）。"""
+    try:
+        url = f"http://{host}:{port}/api/plugins/_session_token"
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8")
+            data = json.loads(body)
+            if isinstance(data, dict):
+                return data.get("token")
+            return body.strip()
+    except Exception:
+        return None
 
 
 def run_process(cmd: list[str], cwd: Path, env: dict, logger: Logger,

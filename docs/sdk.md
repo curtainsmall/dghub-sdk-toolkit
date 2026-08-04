@@ -315,7 +315,7 @@ while running:
 
 ```bash
 set DGHUB_HOST=127.0.0.1
-set DGHUB_PORT=27020
+set DGHUB_PORT=8000
 set DGHUB_TOKEN=<从 GET /api/plugins/_session_token 获取>
 python main.py
 ```
@@ -325,11 +325,11 @@ python main.py
 ```python
 import os
 os.environ["DGHUB_HOST"] = "127.0.0.1"
-os.environ["DGHUB_PORT"] = "27020"
+os.environ["DGHUB_PORT"] = "8000"
 os.environ["DGHUB_TOKEN"] = "your-token-here"
 ```
 
-Token 可从 DGHub 运行时通过 `GET http://127.0.0.1:27020/api/plugins/_session_token` 获取。
+Token 可从 DGHub 运行时通过 `GET http://127.0.0.1:8000/api/plugins/_session_token` 获取。
 
 ---
 
