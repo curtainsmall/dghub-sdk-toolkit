@@ -20,6 +20,7 @@ import customtkinter as ctk
 
 from gui.build_tab import BuildTab
 from gui.compile_tab import CompileTab
+from gui.debug_tab import DebugTab
 from backend.builder import BuildError, Builder
 from backend.compilers import get_compiler
 from backend.pipeline import BuildContext, fill_builder, run_build, validate
@@ -72,6 +73,7 @@ class App(ctk.CTk):
         self._info_tab = self._tab_view.add("信息")
         self._compile_tab = self._tab_view.add("编译")
         self._dist_tab = self._tab_view.add("构建")
+        self._debug_tab = self._tab_view.add("调试")
         self._settings_tab = self._tab_view.add("设置")
         self._log_tab = self._tab_view.add("日志")
 
@@ -90,15 +92,20 @@ class App(ctk.CTk):
             on_error_cleared=self._on_dist_errors_cleared)
         self._dist_view.pack(fill="both", expand=True)
 
+        self._log_view = LogTab(self._log_tab)
+        self._log_view.pack(fill="both", expand=True)
+        self._logger = Logger(self._log_view.emit)
+
+        self._debug_view = DebugTab(
+            self._debug_tab, logger=self._logger,
+            on_state_change=self._on_debug_state_changed)
+        self._debug_view.pack(fill="both", expand=True)
+
         self._settings_view = SettingsTab(
             self._settings_tab,
             on_pypi_index_changed=lambda url: self._save_state_key(
                 "pypi_index", url))
         self._settings_view.pack(fill="both", expand=True)
-
-        self._log_view = LogTab(self._log_tab)
-        self._log_view.pack(fill="both", expand=True)
-        self._logger = Logger(self._log_view.emit)
 
         # -- bottom bar (cross-tab) --
         self._build_bottom_bar()
@@ -194,7 +201,7 @@ class App(ctk.CTk):
 
     def _on_compile_changed(self) -> None:
         """编译设置变更（CompileTab 回调）。"""
-        pass
+        self._debug_view._update_hint()
 
     # ------------------------------------------------------------------
     # bottom bar
@@ -436,9 +443,16 @@ class App(ctk.CTk):
         self._info_view._set_enabled(not locked)
         self._compile_view._set_enabled(not locked)
         self._dist_view._set_enabled(not locked)
+        # 调试运行期间构建按钮同样禁用（互斥），见 _on_debug_state_changed
+        self._debug_view._set_enabled(not locked)
 
     def _start_build(self) -> None:
         if self._running:
+            return
+        if self._debug_view.is_running():
+            self._build_status.configure(
+                text="调试运行中，请先停止调试", text_color="red")
+            self._logger.error("调试运行中，请先停止调试")
             return
         if not self._plugin_dir:
             self._build_status.configure(text="请先选择插件目录", text_color="red")
@@ -461,6 +475,14 @@ class App(ctk.CTk):
 
         # Run build in background
         threading.Thread(target=self._run_build, daemon=True).start()
+
+    def _on_debug_state_changed(self) -> None:
+        """调试运行状态变化：运行中禁用构建按钮（互斥，同一时间只跑一个子进程）。"""
+        state = "disabled" if self._debug_view.is_running() else "normal"
+        try:
+            self._build_btn.configure(state=state)
+        except Exception:
+            pass
 
     def _cancel_build(self) -> None:
         """取消构建：对话框二次确认后硬终止子进程树。"""
@@ -586,6 +608,7 @@ class App(ctk.CTk):
         self._info_view.set_plugin_dir(d, self._pm)
         self._compile_view.set_plugin_dir(d, self._pm)
         self._dist_view.set_plugin_dir(d, self._pm)
+        self._debug_view.set_plugin_dir(d, self._pm)
 
         # Source dir（顶层 source_dir；未设置回退插件目录）
 
@@ -632,5 +655,6 @@ class App(ctk.CTk):
         # 只要有任何变化（含清除旧 derived）就刷新列表
         if applied:
             self._dist_view.set_plugin_dir(self._plugin_dir, self._pm)
+            self._debug_view.set_plugin_dir(self._plugin_dir, self._pm)
             self._dist_view.refresh_preview(self._output_dir)
     

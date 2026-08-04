@@ -6,6 +6,8 @@ from typing import Any, Callable, Optional
 
 import customtkinter as ctk
 
+from backend import settings_store
+
 try:
     from backend._version import __version__ as APP_VERSION
 except ImportError:
@@ -33,12 +35,18 @@ _THEME_CHOICES: list[tuple[str, str]] = [
 class SettingsTab(ctk.CTkFrame):
     """Settings and about page."""
 
+    _DEFAULT_HOST = "localhost"
+    _DEFAULT_PORT = "27020"
+
     def __init__(self, master: Any,
                  on_pypi_index_changed: Optional[Callable[[str], None]] = None,
                  **kwargs: Any) -> None:
         super().__init__(master, **kwargs)
         self._on_pypi_index_changed = on_pypi_index_changed
+        self._host_var = ctk.StringVar(value=self._DEFAULT_HOST)
+        self._port_var = ctk.StringVar(value=self._DEFAULT_PORT)
         self._build_ui()
+        self._load_env()
 
     # -- public API ---------------------------------------------------
 
@@ -54,6 +62,20 @@ class SettingsTab(ctk.CTkFrame):
                 self._pypi_menu.set(label)
                 return
         self._pypi_menu.set(next(iter(PYPI_INDEX_PRESETS)))
+
+    def get_host(self) -> str:
+        return self._host_var.get().strip() or self._DEFAULT_HOST
+
+    def get_port(self) -> str:
+        return self._port_var.get().strip() or self._DEFAULT_PORT
+
+    def set_host(self, host: str) -> None:
+        self._host_var.set(host)
+        self._save_env()
+
+    def set_port(self, port: str) -> None:
+        self._port_var.set(port)
+        self._save_env()
 
     # -- UI -----------------------------------------------------------
 
@@ -146,6 +168,37 @@ class SettingsTab(ctk.CTkFrame):
         ).grid(row=2, column=0, columnspan=2, sticky="w",
                padx=10, pady=(0, 10))
 
+        # -- Debug (DGHub host/port) --
+        runtime_frame = ctk.CTkFrame(self)
+        runtime_frame.grid(row=row, column=0, sticky="ew", padx=10, pady=5)
+        row += 1
+
+        ctk.CTkLabel(runtime_frame, text="调试设置",
+                     font=ctk.CTkFont(size=15, weight="bold")).grid(
+            row=0, column=0, columnspan=2, sticky="w", padx=10, pady=(10, 5))
+
+        ctk.CTkLabel(runtime_frame, text="主机（DGHUB_HOST）:").grid(
+            row=1, column=0, sticky="w", padx=(10, 5), pady=(0, 4))
+        ctk.CTkEntry(runtime_frame, textvariable=self._host_var, width=240,
+                     ).grid(row=1, column=1, sticky="w", padx=5, pady=(0, 4))
+        self._host_var.trace_add("write", lambda *_: self._save_env())
+
+        ctk.CTkLabel(runtime_frame, text="端口（DGHUB_PORT）:").grid(
+            row=2, column=0, sticky="w", padx=(10, 5), pady=(0, 4))
+        ctk.CTkEntry(runtime_frame, textvariable=self._port_var, width=240,
+                     ).grid(row=2, column=1, sticky="w", padx=5, pady=(0, 4))
+        self._port_var.trace_add("write", lambda *_: self._save_env())
+
+        ctk.CTkLabel(
+            runtime_frame,
+            text="Packer 调试插件时注入子进程的主机与端口（插件正式运行时"
+                 "由 DGHub 主程序自行注入，无需此处配置）。",
+            font=ctk.CTkFont(size=12),
+            text_color=("gray30", "gray70"),
+            wraplength=600, justify="left",
+        ).grid(row=3, column=0, columnspan=2, sticky="w",
+               padx=10, pady=(0, 10))
+
         # -- Reset defaults --
         reset_frame = ctk.CTkFrame(self)
         reset_frame.grid(row=row, column=0, sticky="ew", padx=10, pady=5)
@@ -156,7 +209,7 @@ class SettingsTab(ctk.CTkFrame):
             row=0, column=0, sticky="w", padx=10, pady=10)
         ctk.CTkLabel(
             reset_frame,
-            text="外观深色、镜像官方源。",
+            text="外观深色、镜像官方源、主机 localhost、端口 27020。",
             font=ctk.CTkFont(size=12),
             text_color=("gray30", "gray70"),
         ).grid(row=0, column=1, sticky="w", padx=(0, 10), pady=10)
@@ -186,7 +239,7 @@ class SettingsTab(ctk.CTkFrame):
         ctk.set_appearance_mode(value)
 
     def _reset_defaults(self) -> None:
-        """恢复默认：外观深色、镜像官方源。"""
+        """恢复默认：外观深色、镜像官方源、主机 localhost、端口 27020。"""
         if not messagebox.askyesno(
                 "恢复默认",
                 "确定恢复全部默认设置？"):
@@ -196,8 +249,25 @@ class SettingsTab(ctk.CTkFrame):
         self._pypi_menu.set(next(iter(PYPI_INDEX_PRESETS)))
         if self._on_pypi_index_changed:
             self._on_pypi_index_changed("")
+        self._host_var.set(self._DEFAULT_HOST)
+        self._port_var.set(self._DEFAULT_PORT)
+        self._save_env()
 
     def _pypi_changed(self, _label: str) -> None:
         """镜像源选项变化时通知外部（实时保存）。"""
         if self._on_pypi_index_changed:
             self._on_pypi_index_changed(self.get_pypi_index())
+
+    def _load_env(self) -> None:
+        saved = settings_store.get_state("debug_env", {})
+        if isinstance(saved, dict):
+            if saved.get("host") and saved["host"] != "localhost":
+                self._host_var.set(saved["host"])
+            if saved.get("port") and saved["port"] != "27020":
+                self._port_var.set(saved["port"])
+
+    def _save_env(self) -> None:
+        settings_store.save_state_key("debug_env", {
+            "host": self._host_var.get().strip(),
+            "port": self._port_var.get().strip(),
+        })
