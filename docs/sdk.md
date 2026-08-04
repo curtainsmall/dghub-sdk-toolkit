@@ -72,6 +72,37 @@ if agent.is_ready():
 `poll()` 从内部消息队列取出已收到的服务端消息，在调用线程上依次触发回调。
 默认非阻塞（立即清空队列），传入 `timeout` 参数可阻塞等待。
 
+## 插件根目录与资源文件
+
+`dghub_sdk.plugin_root()` 返回插件根目录，源码与 exe 形态自动一致：
+
+- **exe（Packer 产物）**：exe 所在目录（Packer onedir 布局下 exe 与
+  manifest.json、资源同级于插件根）
+- **源码（开发调试）**：调用该函数的文件所在目录
+- **`DGHUB_PLUGIN_DIR`**：服务端/调试器注入插件根时优先使用（约定绝对路径）
+
+```python
+import dghub_sdk
+
+icon = dghub_sdk.plugin_root() / "assets" / "icon.png"   # 读资源统一相对插件根
+
+with dghub_sdk.Agent() as agent:
+    ...
+```
+
+`Agent.manifest_dir`（公开参数）解析三档：
+
+1. 显式传入——绝对原样；相对以调用方文件目录为基准（raw SDK 用户自写
+   插件目录 + manifest.json 时使用）
+2. `DGHUB_MANIFEST_DIR` 环境变量——Packer 调试注入（约定绝对路径；
+   未来「debug via packer」会注入 `plugin_dir/.dghub-sdk`，用户代码
+   零改动）
+3. 均未提供——直接用 `plugin_root()` 的插件根（Packer 用户 `Agent()`
+   零参数）
+
+手动运行源码且插件根没有 manifest.json 时，握手会报 `FileNotFoundError`
+（插件根 manifest 是构建产物；未使用 Packer 的项目需自行维护）。
+
 ---
 
 ## 配置监听

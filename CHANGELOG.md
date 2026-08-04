@@ -7,6 +7,19 @@
 版本号为 toolkit 发布批次号，Packer 与 SDK 统一使用；SDK 仅在自身有变更
 的批次发布至 PyPI（版本跳号为预期行为）。
 
+## [0.6.0]
+
+### 新增
+
+- **SDK**：新增 `plugin_root()` 统一路径 API——模块级函数，返回插件根：
+  exe 形态 = exe 所在目录，源码形态 = 调用文件所在目录；支持
+  `DGHUB_PLUGIN_DIR` 环境变量注入（约定绝对路径）；显式传参原样返回
+  （由调用方负责）
+- **SDK**：`Agent.manifest_dir` 三档解析——显式传参（现状语义）→
+  `DGHUB_MANIFEST_DIR` 环境变量（Packer 调试注入，约定绝对路径）→
+  默认取 `plugin_root()`；修复 exe 插件默认推断指向解包目录的陷阱，
+  源码与 exe 形态行为一致
+
 ## [0.5.0] - 2026-08-02
 
 ### 新增
@@ -201,10 +214,3 @@
 ## [0.1.3] - 2026-07-27
 
 历史版本，详见 [Releases](https://github.com/curtainsmall/dghub-sdk-toolkit/releases)。
-
-[0.5.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.4.0...v0.5.0
-[0.4.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.3.0...v0.4.0
-[0.3.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.2.1...v0.3.0
-[0.2.1]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/curtainsmall/dghub-sdk-toolkit/compare/v0.1.3...v0.2.0
-[0.1.3]: https://github.com/curtainsmall/dghub-sdk-toolkit/releases/tag/v0.1.3

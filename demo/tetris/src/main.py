@@ -350,23 +350,23 @@ class Tetris:
 
 
 activated = False
-strength = 20
+delta_pct = 20
 def on_config_changed_callback(key: str, value: Any):
-    global activated, strength
+    global activated, delta_pct
     match key:
-        case "switch":
+        case "activated":
             activated = value
-        case "strength":
-            strength = value
+        case "delta_pct":
+            delta_pct = value
 
 def on_config_callback(configs: dict[str, Any]):
-    global activated, strength
+    global activated, delta_pct
     for key, value in configs.items():
         match key:
-            case "switch":
+            case "activated":
                 activated = value
-            case "strength":
-                strength = value
+            case "delta_pct":
+                delta_pct = value
 
 # ── Main ───────────────────────────────────────────────────────────────
 
@@ -404,7 +404,7 @@ def main() -> None:
 
     punished = True
 
-    global activated, strength
+    global activated, delta_pct
     with dghub_sdk.Agent() as agent:
         agent.on_config = on_config_callback
         agent.on_config_changed = on_config_changed_callback
@@ -440,7 +440,7 @@ def main() -> None:
                 if not punished:
                     agent.send_trigger(
                         action=dghub_sdk.Action.STRENGTH,
-                        delta_pct=strength,
+                        delta_pct=delta_pct,
                         duration_s=5
                     )
                     punished = True
