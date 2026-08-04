@@ -19,8 +19,7 @@ from backend import settings_store
 from backend.build_control import Canceller
 from backend.compilers import get_compiler
 from backend.debug_runner import (build_for_debug, detect_dghub,
-                                  fetch_token, locate_debug_entry,
-                                  run_process)
+                                  locate_debug_entry, run_process)
 from backend.builder import Builder
 from backend.logbus import Logger
 from backend.pipeline import BuildContext
@@ -51,11 +50,14 @@ class DebugTab(ctk.CTkFrame):
 
         # 状态变量
         self._mode_var = ctk.StringVar(value="调试源码")
+        self._host_var = ctk.StringVar(value="localhost")
+        self._port_var = ctk.StringVar(value="27020")
         self._token_var = ctk.StringVar(
             value=os.environ.get("DGHUB_TOKEN", ""))
 
         self._build_ui()
         self._set_enabled(False)
+        self._load_env()
 
     # ------------------------------------------------------------------
     # UI
@@ -102,26 +104,22 @@ class DebugTab(ctk.CTkFrame):
                      anchor="w", font=ctk.CTkFont(weight="bold")).grid(
             row=0, column=0, padx=(0, 5), sticky="w")
 
-        ctk.CTkLabel(env_frame, text="令牌（DGHUB_TOKEN）", width=_LABEL_W,
-                     anchor="w").grid(
-            row=1, column=0, padx=(0, 5), sticky="w", pady=3)
-        entry = ctk.CTkEntry(env_frame, textvariable=self._token_var,
-                             width=240)
-        entry.grid(row=1, column=1, sticky="w", padx=5, pady=3)
-        self._controls.append(entry)
-
-        ctk.CTkLabel(
-            env_frame,
-            text="主机与端口在「设置」页填写；点击下方按钮检测 DGHub"
-                 "并自动拉取令牌。",
-            font=ctk.CTkFont(size=11),
-            text_color=("gray40", "gray60"),
-            wraplength=560, justify="left",
-        ).grid(row=2, column=0, columnspan=2, sticky="w",
-               padx=(0, 5), pady=(0, 6))
+        rows = [("主机（DGHUB_HOST）", self._host_var),
+                ("端口（DGHUB_PORT）", self._port_var),
+                ("令牌（DGHUB_TOKEN）", self._token_var)]
+        self._env_trace_ids: list[str] = []
+        for i, (label, var) in enumerate(rows):
+            ctk.CTkLabel(env_frame, text=label, width=_LABEL_W,
+                         anchor="w").grid(
+                row=i + 1, column=0, padx=(0, 5), sticky="w", pady=3)
+            entry = ctk.CTkEntry(env_frame, textvariable=var, width=240)
+            entry.grid(row=i + 1, column=1, sticky="w", padx=5, pady=3)
+            self._controls.append(entry)
+            tid = var.trace_add("write", self._on_env_edit)
+            self._env_trace_ids.append(tid)
 
         detect_row = ctk.CTkFrame(env_frame, fg_color="transparent")
-        detect_row.grid(row=3, column=1, sticky="w", padx=5, pady=3)
+        detect_row.grid(row=len(rows) + 1, column=1, sticky="w", padx=5, pady=3)
         self._detect_btn = ctk.CTkButton(
             detect_row, text="检测 DGHub", width=100,
             command=self._detect_clicked)
@@ -195,45 +193,47 @@ class DebugTab(ctk.CTkFrame):
             self._on_state_change()
 
     # ------------------------------------------------------------------
-    # env / 探测
+    # env 持久化 / 探测
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _read_host_port() -> tuple[str, int]:
-        """从全局设置读取主机与端口。"""
+    def _load_env(self) -> None:
         saved = settings_store.get_state("debug_env", {})
-        host = saved.get("host", "") if isinstance(saved, dict) else ""
-        port = saved.get("port", "") if isinstance(saved, dict) else ""
-        return (host or "localhost", int(port or "8000"))
+        if isinstance(saved, dict):
+            if saved.get("host"):
+                self._host_var.set(saved["host"])
+            if saved.get("port"):
+                self._port_var.set(saved["port"])
+            if saved.get("token"):
+                self._token_var.set(saved["token"])
+
+    def _on_env_edit(self, *_args: Any) -> None:
+        """用户手动填写环境变量 → 清除检测提示。"""
+        self._detect_hint.configure(text="", text_color=("gray40", "gray60"))
+
+    def _save_env(self) -> None:
+        settings_store.save_state_key("debug_env", {
+            "host": self._host_var.get().strip(),
+            "port": self._port_var.get().strip(),
+            "token": self._token_var.get().strip(),
+        })
 
     def _detect_clicked(self) -> None:
-        self._detecting = True
         self._detect_hint.configure(text="检测中...")
         threading.Thread(target=self._detect_work, daemon=True).start()
 
     def _detect_work(self) -> None:
-        host, port = self._read_host_port()
-        ok = detect_dghub(host, port)
+        ok = detect_dghub(self._host_var.get().strip() or "localhost",
+                          int(self._port_var.get().strip() or "27020"))
         if ok:
-            token = fetch_token(host, port)
-            self.after(0, self._on_detect_success, token)
+            self.after(0, lambda: (
+                self._host_var.set("localhost"),
+                self._port_var.set("27020"),
+                self._detect_hint.configure(
+                    text="已检测到 DGHub", text_color="green")))
         else:
-            self.after(0, self._on_detect_fail)
-
-    def _on_detect_success(self, token: str | None = None) -> None:
-        settings_store.save_state_key("debug_env", {
-            "host": "localhost", "port": "8000",
-        })
-        if token:
-            self._token_var.set(token)
-        self._detect_hint.configure(text="已检测到 DGHub", text_color="green")
-        self._detecting = False
-
-    def _on_detect_fail(self) -> None:
-        self._detect_hint.configure(
-            text="未检测到（可手动填写）",
-            text_color=("#C0504D", "#E57373"))
-        self._detecting = False
+            self.after(0, lambda: self._detect_hint.configure(
+                text="未检测到（可手动填写）",
+                text_color=("#C0504D", "#E57373")))
 
     # ------------------------------------------------------------------
     # 启动 / 停止
@@ -242,6 +242,7 @@ class DebugTab(ctk.CTkFrame):
     def _start_clicked(self) -> None:
         if self._running or not self._pm or not self._plugin_dir:
             return
+        self._save_env()
         self._running = True
         self._set_status("调试运行中...", ("#2E7D32", "#4CAF50"))
         self._start_btn.configure(state="disabled")
@@ -254,10 +255,9 @@ class DebugTab(ctk.CTkFrame):
             self._canceller.cancel()
 
     def _build_env(self) -> dict:
-        host, port = self._read_host_port()
         env = {**os.environ,
-               "DGHUB_HOST": host,
-               "DGHUB_PORT": str(port),
+               "DGHUB_HOST": self._host_var.get().strip() or "localhost",
+               "DGHUB_PORT": self._port_var.get().strip() or "27020",
                "DGHUB_TOKEN": self._token_var.get().strip()}
         return env
 
@@ -346,6 +346,7 @@ class DebugTab(ctk.CTkFrame):
             self._pm = pm
         self._plugin_dir = d
         self._set_enabled(True)
+        self._load_env()
         self._update_hint()
 
     def is_running(self) -> bool:
