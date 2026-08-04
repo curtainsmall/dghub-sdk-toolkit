@@ -36,7 +36,7 @@ class SettingsTab(ctk.CTkFrame):
     """Settings and about page."""
 
     _DEFAULT_HOST = "localhost"
-    _DEFAULT_PORT = "27020"
+    _DEFAULT_PORT = "8000"
 
     def __init__(self, master: Any,
                  on_pypi_index_changed: Optional[Callable[[str], None]] = None,
@@ -209,7 +209,7 @@ class SettingsTab(ctk.CTkFrame):
             row=0, column=0, sticky="w", padx=10, pady=10)
         ctk.CTkLabel(
             reset_frame,
-            text="外观深色、镜像官方源、主机 localhost、端口 27020。",
+            text="外观深色、镜像官方源、主机 localhost、端口 8000。",
             font=ctk.CTkFont(size=12),
             text_color=("gray30", "gray70"),
         ).grid(row=0, column=1, sticky="w", padx=(0, 10), pady=10)
@@ -239,7 +239,7 @@ class SettingsTab(ctk.CTkFrame):
         ctk.set_appearance_mode(value)
 
     def _reset_defaults(self) -> None:
-        """恢复默认：外观深色、镜像官方源、主机 localhost、端口 27020。"""
+        """恢复默认：外观深色、镜像官方源、主机 localhost、端口 8000。"""
         if not messagebox.askyesno(
                 "恢复默认",
                 "确定恢复全部默认设置？"):
@@ -263,7 +263,7 @@ class SettingsTab(ctk.CTkFrame):
         if isinstance(saved, dict):
             if saved.get("host") and saved["host"] != "localhost":
                 self._host_var.set(saved["host"])
-            if saved.get("port") and saved["port"] != "27020":
+            if saved.get("port") and saved["port"] != "8000":
                 self._port_var.set(saved["port"])
 
     def _save_env(self) -> None:

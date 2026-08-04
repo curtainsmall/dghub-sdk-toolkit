@@ -488,7 +488,7 @@ class Agent:
 
         # ---- 环境变量 ----
         host = os.environ.get("DGHUB_HOST", "localhost")
-        port = os.environ.get("DGHUB_PORT", "27020")
+        port = os.environ.get("DGHUB_PORT", "8000")
         self._token = os.environ.get("DGHUB_TOKEN", "")
         if not self._token:
             raise ValueError("DGHUB_TOKEN environment variable is not set")
