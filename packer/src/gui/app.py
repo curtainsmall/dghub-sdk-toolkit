@@ -565,27 +565,28 @@ class App(ctk.CTk):
                      wraplength=380, justify="left").pack(
             padx=24, pady=(24, 10))
 
-        skip_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(dialog, text="忽略此版本",
-                        variable=skip_var).pack(padx=24, pady=5, anchor="w")
-
         result = {"ok": False}
 
         def _on_ok() -> None:
             result["ok"] = True
             dialog.destroy()
 
+        def _on_ignore() -> None:
+            """忽略此版本：记录跳过并关闭对话框。"""
+            skip_version(latest)
+            dialog.destroy()
+
         def _on_cancel() -> None:
-            if skip_var.get():
-                skip_version(latest)
             dialog.destroy()
 
         btns = ctk.CTkFrame(dialog, fg_color="transparent")
         btns.pack(padx=24, pady=(10, 24))
-        ctk.CTkButton(btns, text="取消", width=100,
-                      command=_on_cancel).pack(side="left", padx=5)
+        ctk.CTkButton(btns, text="忽略此版本", width=100,
+                      command=_on_ignore).pack(side="left", padx=5)
         ctk.CTkButton(btns, text="安装" if has_installer else "下载",
                       width=100, command=_on_ok).pack(side="left", padx=5)
+        ctk.CTkButton(btns, text="取消", width=100,
+                      command=_on_cancel).pack(side="left", padx=5)
 
         # 居中于主窗口
         dialog.update_idletasks()
