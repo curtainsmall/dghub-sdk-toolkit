@@ -2,7 +2,7 @@
 
 - 打包内容：统一文件选择列表（文件 / 目录 / 规则三种条目，标签标记入口）
   +「添加文件」/「添加目录」（常规系统选择器）+「添加规则」+「从编译填充」
-- 发布选项：文件夹模式 (No Zip) 复选框 + 预览树（输出目录在顶部栏）
+- 发布选项：输出固定为 .zip 分发包 + 预览树（输出目录在顶部栏）
 """
 
 from pathlib import Path
@@ -49,8 +49,6 @@ class BuildTab(ctk.CTkFrame):
         self._controls: list[ctk.CTkBaseClass] = []
         self._error_rels: set[str] = set()  # 校验失败的条目相对路径
         self._area_error: str = ""          # 区域级错误（如缺少入口）
-
-        self._no_zip_var = ctk.BooleanVar(value=False)
 
         self._build_ui()
         self._set_enabled(False)
@@ -155,11 +153,6 @@ class BuildTab(ctk.CTkFrame):
         ctk.CTkLabel(right, text="发布选项",
                      font=ctk.CTkFont(size=14, weight="bold")).grid(
             row=0, column=0, sticky="w", padx=10, pady=(10, 5))
-        self._no_zip_cb = ctk.CTkCheckBox(
-            right, text="不压缩",
-            variable=self._no_zip_var, command=self._on_no_zip_changed)
-        self._no_zip_cb.grid(row=1, column=0, sticky="w", padx=10, pady=2)
-        self._controls.append(self._no_zip_cb)
 
         # 输出文件预览
         ctk.CTkLabel(right, text="输出文件预览",
@@ -171,9 +164,6 @@ class BuildTab(ctk.CTkFrame):
         self._preview.grid(row=3, column=0, sticky="nsew", padx=10,
                            pady=(0, 10))
         self._controls.append(self._preview)
-
-        # 变更即保存
-        self._no_zip_var.trace_add("write", self._on_setting_changed)
 
     # ------------------------------------------------------------------
     # 打包内容（统一文件列表，标签标记入口）
@@ -566,9 +556,6 @@ class BuildTab(ctk.CTkFrame):
         self.save_settings()
         self._refresh_preview()
 
-    def _on_no_zip_changed(self) -> None:
-        self._refresh_preview()
-
     def set_plugin_dir(self, d: str, pm: Optional[ProjectManager] = None) -> None:
         if pm:
             self._pm = pm
@@ -578,25 +565,12 @@ class BuildTab(ctk.CTkFrame):
         self._area_error = ""
         self._area_err_lbl.grid_remove()
         if self._pm:
-            self._loading = True
-            try:
-                project = self._pm.read_project()
-                self._no_zip_var.set(
-                    bool(project.get("builder", {}).get("no_zip", False)))
-            finally:
-                self._loading = False
             self._refresh_item_list()
         self._refresh_preview()
 
     def save_settings(self) -> None:
-        """保存文件夹模式 No Zip（builder 节）到 project.json。"""
-        if not self._pm:
-            return
-        project = self._pm.read_project()
-        builder = dict(project.get("builder", {}))
-        builder["no_zip"] = self._no_zip_var.get()
-        project["builder"] = builder
-        self._pm.write_project(project)
+        """发布选项已无持久化字段（仅 zip 输出），保留占位供调用方兼容。"""
+        return
 
     # ------------------------------------------------------------------
     # accessors（供 app.py / 预览）
@@ -644,11 +618,7 @@ class BuildTab(ctk.CTkFrame):
         lines.append(f"输出目录: {shown_out}")
 
         entry = "（未设置）"
-        no_zip = self._no_zip_var.get()
-        if no_zip:
-            lines.append(f"  {plugin_name}/  ← 文件夹")
-        else:
-            lines.append(f"  {plugin_name}.zip  ← 分发包")
+        lines.append(f"  {plugin_name}.zip  ← 分发包")
 
         # 树行：先收集再绘制——最后一行用 L 形转角（└──），其余用 ├──
         tree = ["    ├── manifest.json"]
