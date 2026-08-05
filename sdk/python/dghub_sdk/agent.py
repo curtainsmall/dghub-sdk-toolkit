@@ -1,10 +1,10 @@
-"""异步 WebSocket 连接管理器 —— 对外提供完全同步的 API。
+﻿"""异步 WebSocket 连接管理器 —— 对外提供完全同步的 API。
 
 将整个异步生命周期封装在后台线程中。收到的服务端消息会先进入队列，
 在用户线程调用 ``poll()`` 时再分发到各回调。
 
 插件根与 manifest 目录定位：``plugin_root()``（模块级，@cache）返回插件根
-（显式参数原样 / ``DGHUB_PLUGIN_DIR`` env / frozen exe 目录 / caller 目录）；
+（显式参数原样 / ``DGHUB_PLUGIN_ROOT`` env / frozen exe 目录 / caller 目录）；
 ``Agent.manifest_dir`` 默认 = 插件根，支持 ``DGHUB_MANIFEST_DIR`` 注入（Packer 调试）。
 """
 
@@ -25,11 +25,11 @@ from .enums import Action, Channel, CheckState, DeviceType, LogLevel, OpCode, St
 @cache
 def plugin_root(plugin_dir: Path | None = None) -> Path:
     """插件根：显式传入**原样返回**（用户负责，不解析不校验——谁先调用结果都相同）；
-    否则默认：DGHUB_PLUGIN_DIR env（约定绝对路径，resolve 兜底）→ frozen exe 目录
+    否则默认：DGHUB_PLUGIN_ROOT env（约定绝对路径，resolve 兜底）→ frozen exe 目录
     → caller 目录。进程内缓存。"""
     if plugin_dir is not None:
         return Path(plugin_dir)
-    env_dir = os.environ.get("DGHUB_PLUGIN_DIR")
+    env_dir = os.environ.get("DGHUB_PLUGIN_ROOT")
     if env_dir:
         return Path(env_dir).resolve()   # 注入值约定为绝对路径，resolve 兜底（相对 cwd 归一化）
     if getattr(sys, "frozen", False):
@@ -203,7 +203,7 @@ class Agent:
 
     def __exit__(self, *args: Any) -> None:
         self.stop()
-        self.wait_threading_exit()
+        self.wait_threading_exit(timeout=5.0)
 
     # -- 公开发送方法（均为同步） --------------------------------------------
 
@@ -488,7 +488,7 @@ class Agent:
 
         # ---- 环境变量 ----
         host = os.environ.get("DGHUB_HOST", "localhost")
-        port = os.environ.get("DGHUB_PORT", "27020")
+        port = os.environ.get("DGHUB_PORT", "8000")
         self._token = os.environ.get("DGHUB_TOKEN", "")
         if not self._token:
             raise ValueError("DGHUB_TOKEN environment variable is not set")
@@ -497,13 +497,21 @@ class Agent:
 
         # ---- 带重试的连接 ----
         for attempt in range(self._max_retries + 1):
+            if self._stopped:
+                raise ConnectionError(
+                    "Agent stopped before connection established")
             try:
                 self._ws = await websockets.connect(url)
                 break
             except (ConnectionRefusedError, TimeoutError, OSError) as exc:
                 if attempt < self._max_retries:
                     delay = min(2 ** attempt, 30)
-                    await asyncio.sleep(delay)
+                    # 分片等待：stop() 可在 0.5s 内中断退避重试
+                    for _ in range(int(delay / 0.5)):
+                        if self._stopped:
+                            raise ConnectionError(
+                                "Agent stopped before connection established")
+                        await asyncio.sleep(0.5)
                 else:
                     raise
 

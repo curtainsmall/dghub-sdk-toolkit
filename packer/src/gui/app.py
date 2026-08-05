@@ -20,6 +20,7 @@ import customtkinter as ctk
 
 from gui.build_tab import BuildTab
 from gui.compile_tab import CompileTab
+from gui.debug_tab import DebugTab
 from backend.builder import BuildError, Builder
 from backend.compilers import get_compiler
 from backend.pipeline import BuildContext, fill_builder, run_build, validate
@@ -72,6 +73,7 @@ class App(ctk.CTk):
         self._info_tab = self._tab_view.add("信息")
         self._compile_tab = self._tab_view.add("编译")
         self._dist_tab = self._tab_view.add("构建")
+        self._debug_tab = self._tab_view.add("调试")
         self._settings_tab = self._tab_view.add("设置")
         self._log_tab = self._tab_view.add("日志")
 
@@ -90,15 +92,20 @@ class App(ctk.CTk):
             on_error_cleared=self._on_dist_errors_cleared)
         self._dist_view.pack(fill="both", expand=True)
 
+        self._log_view = LogTab(self._log_tab)
+        self._log_view.pack(fill="both", expand=True)
+        self._logger = Logger(self._log_view.emit)
+
+        self._debug_view = DebugTab(
+            self._debug_tab, logger=self._logger,
+            on_state_change=self._on_debug_state_changed)
+        self._debug_view.pack(fill="both", expand=True)
+
         self._settings_view = SettingsTab(
             self._settings_tab,
             on_pypi_index_changed=lambda url: self._save_state_key(
                 "pypi_index", url))
         self._settings_view.pack(fill="both", expand=True)
-
-        self._log_view = LogTab(self._log_tab)
-        self._log_view.pack(fill="both", expand=True)
-        self._logger = Logger(self._log_view.emit)
 
         # -- bottom bar (cross-tab) --
         self._build_bottom_bar()
@@ -109,6 +116,9 @@ class App(ctk.CTk):
 
         # -- auto-load last plugin dir --
         self._auto_open_last_plugin_dir()
+
+        # 启动即检查更新（后台线程，不阻塞 UI）
+        self._auto_check_update()
 
         # 退出时终止正在运行的构建（避免残留子进程）
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -194,7 +204,7 @@ class App(ctk.CTk):
 
     def _on_compile_changed(self) -> None:
         """编译设置变更（CompileTab 回调）。"""
-        pass
+        self._debug_view._update_hint()
 
     # ------------------------------------------------------------------
     # bottom bar
@@ -436,9 +446,16 @@ class App(ctk.CTk):
         self._info_view._set_enabled(not locked)
         self._compile_view._set_enabled(not locked)
         self._dist_view._set_enabled(not locked)
+        # 调试运行期间构建按钮同样禁用（互斥），见 _on_debug_state_changed
+        self._debug_view._set_enabled(not locked)
 
     def _start_build(self) -> None:
         if self._running:
+            return
+        if self._debug_view.is_running():
+            self._build_status.configure(
+                text="调试运行中，请先停止调试", text_color="red")
+            self._logger.error("调试运行中，请先停止调试")
             return
         if not self._plugin_dir:
             self._build_status.configure(text="请先选择插件目录", text_color="red")
@@ -462,6 +479,14 @@ class App(ctk.CTk):
         # Run build in background
         threading.Thread(target=self._run_build, daemon=True).start()
 
+    def _on_debug_state_changed(self) -> None:
+        """调试运行状态变化：运行中禁用构建按钮（互斥，同一时间只跑一个子进程）。"""
+        state = "disabled" if self._debug_view.is_running() else "normal"
+        try:
+            self._build_btn.configure(state=state)
+        except Exception:
+            pass
+
     def _cancel_build(self) -> None:
         """取消构建：对话框二次确认后硬终止子进程树。"""
         if not self._running:
@@ -483,6 +508,93 @@ class App(ctk.CTk):
         if self._running and self._canceller is not None:
             self._canceller.cancel()
         self.destroy()
+
+    # ------------------------------------------------------------------
+    # in-app update
+    # ------------------------------------------------------------------
+
+    def _auto_check_update(self) -> None:
+        """启动即检查更新（每次启动都查，弹窗条件按版本判断）。
+
+        dev / 无版本构建（本地源码运行）跳过检查。
+        """
+        from backend.updater import (get_current_version, check_latest,
+                                     should_notify)
+        version = get_current_version()
+        if version in ("dev", "No Version"):
+            return
+
+        def _check() -> None:
+            latest, url, size = check_latest()
+            if latest and url and should_notify(latest, version):
+                self.after(0, lambda: self._on_new_version_found(
+                    latest, url, size))
+
+        threading.Thread(target=_check, daemon=True).start()
+
+    def _on_new_version_found(self, latest: str, url: str, size: int) -> None:
+        """自动检测到新版本：弹自定义对话框询问，是则切到设置页。
+
+        对话框提供「下载 / 安装」与「取消」按钮及「不要此版本」复选框
+        （勾选后点取消 → 跳过该版本）。
+        """
+        if self._ask_new_version(latest, url, size):
+            self._tab_view.set("设置")
+            self._settings_view.show_update(latest, url, size)
+            # 未下载过 → 弹窗点「下载」后自动开始下载
+            from backend.updater import update_dest
+            if not update_dest(latest).is_file():
+                self._settings_view.start_download()
+
+    def _ask_new_version(self, latest: str, url: str, size: int) -> bool:
+        """自定义更新询问对话框。返回 True = 用户选择下载/安装。"""
+        from backend.updater import skip_version, update_dest
+        dest = update_dest(latest)
+        has_installer = dest.is_file()
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("发现新版本")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        text = (f"发现 DGHub SDK Packer {latest}，安装包已下载，是否安装？"
+                if has_installer
+                else f"发现 DGHub SDK Packer {latest}，是否下载？")
+        ctk.CTkLabel(dialog, text=text, font=ctk.CTkFont(size=14),
+                     wraplength=380, justify="left").pack(
+            padx=24, pady=(24, 10))
+
+        result = {"ok": False}
+
+        def _on_ok() -> None:
+            result["ok"] = True
+            dialog.destroy()
+
+        def _on_ignore() -> None:
+            """忽略此版本：记录跳过并关闭对话框。"""
+            skip_version(latest)
+            dialog.destroy()
+
+        def _on_cancel() -> None:
+            dialog.destroy()
+
+        btns = ctk.CTkFrame(dialog, fg_color="transparent")
+        btns.pack(padx=24, pady=(10, 24))
+        ctk.CTkButton(btns, text="忽略此版本", width=100,
+                      command=_on_ignore).pack(side="left", padx=5)
+        ctk.CTkButton(btns, text="安装" if has_installer else "下载",
+                      width=100, command=_on_ok).pack(side="left", padx=5)
+        ctk.CTkButton(btns, text="取消", width=100,
+                      command=_on_cancel).pack(side="left", padx=5)
+
+        # 居中于主窗口
+        dialog.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - dialog.winfo_width()) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+        dialog.wait_window()
+        return result["ok"]
 
     def _run_build(self) -> None:
         """Validate and execute the build pipeline."""
@@ -586,6 +698,7 @@ class App(ctk.CTk):
         self._info_view.set_plugin_dir(d, self._pm)
         self._compile_view.set_plugin_dir(d, self._pm)
         self._dist_view.set_plugin_dir(d, self._pm)
+        self._debug_view.set_plugin_dir(d, self._pm)
 
         # Source dir（顶层 source_dir；未设置回退插件目录）
 
@@ -632,5 +745,6 @@ class App(ctk.CTk):
         # 只要有任何变化（含清除旧 derived）就刷新列表
         if applied:
             self._dist_view.set_plugin_dir(self._plugin_dir, self._pm)
+            self._debug_view.set_plugin_dir(self._plugin_dir, self._pm)
             self._dist_view.refresh_preview(self._output_dir)
     

@@ -27,6 +27,7 @@ packer/src/backend/_version.py
 sdk/**/dist/
 demo/**/vendor/
 demo/**/*.zip
+demo/**/debug/
 
 # Re-ignore generated & cache
 __pycache__/
