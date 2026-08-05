@@ -1,10 +1,10 @@
-"""异步 WebSocket 连接管理器 —— 对外提供完全同步的 API。
+﻿"""异步 WebSocket 连接管理器 —— 对外提供完全同步的 API。
 
 将整个异步生命周期封装在后台线程中。收到的服务端消息会先进入队列，
 在用户线程调用 ``poll()`` 时再分发到各回调。
 
 插件根与 manifest 目录定位：``plugin_root()``（模块级，@cache）返回插件根
-（显式参数原样 / ``DGHUB_PLUGIN_DIR`` env / frozen exe 目录 / caller 目录）；
+（显式参数原样 / ``DGHUB_PLUGIN_ROOT`` env / frozen exe 目录 / caller 目录）；
 ``Agent.manifest_dir`` 默认 = 插件根，支持 ``DGHUB_MANIFEST_DIR`` 注入（Packer 调试）。
 """
 
@@ -25,11 +25,11 @@ from .enums import Action, Channel, CheckState, DeviceType, LogLevel, OpCode, St
 @cache
 def plugin_root(plugin_dir: Path | None = None) -> Path:
     """插件根：显式传入**原样返回**（用户负责，不解析不校验——谁先调用结果都相同）；
-    否则默认：DGHUB_PLUGIN_DIR env（约定绝对路径，resolve 兜底）→ frozen exe 目录
+    否则默认：DGHUB_PLUGIN_ROOT env（约定绝对路径，resolve 兜底）→ frozen exe 目录
     → caller 目录。进程内缓存。"""
     if plugin_dir is not None:
         return Path(plugin_dir)
-    env_dir = os.environ.get("DGHUB_PLUGIN_DIR")
+    env_dir = os.environ.get("DGHUB_PLUGIN_ROOT")
     if env_dir:
         return Path(env_dir).resolve()   # 注入值约定为绝对路径，resolve 兜底（相对 cwd 归一化）
     if getattr(sys, "frozen", False):

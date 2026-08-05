@@ -162,7 +162,7 @@ def test_background_send_failures_are_reported(
 
 def test_plugin_root_source(monkeypatch: pytest.MonkeyPatch) -> None:
     """源码形态：无参返回调用者文件目录（现状语义）。"""
-    monkeypatch.delenv("DGHUB_PLUGIN_DIR", raising=False)
+    monkeypatch.delenv("DGHUB_PLUGIN_ROOT", raising=False)
     plugin_root.cache_clear()
     try:
         assert plugin_root() == Path(__file__).resolve().parent
@@ -173,7 +173,7 @@ def test_plugin_root_source(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_plugin_root_frozen(tmp_path: Path,
                             monkeypatch: pytest.MonkeyPatch) -> None:
     """frozen 模拟：返回 exe 目录（修复 _MEIPASS 陷阱）。"""
-    monkeypatch.delenv("DGHUB_PLUGIN_DIR", raising=False)
+    monkeypatch.delenv("DGHUB_PLUGIN_ROOT", raising=False)
     fake_exe = tmp_path / "plugin" / "my-plugin.exe"
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", str(fake_exe))
@@ -201,7 +201,7 @@ def test_plugin_root_explicit_param(tmp_path: Path,
     assert plugin_root(p) == p
     assert plugin_root(p) is plugin_root(p)
     # 无参默认分支不受显式调用影响
-    monkeypatch.delenv("DGHUB_PLUGIN_DIR", raising=False)
+    monkeypatch.delenv("DGHUB_PLUGIN_ROOT", raising=False)
     plugin_root.cache_clear()
     try:
         assert plugin_root() == Path(__file__).resolve().parent
@@ -211,9 +211,9 @@ def test_plugin_root_explicit_param(tmp_path: Path,
 
 def test_plugin_root_env_plugin_dir(tmp_path: Path,
                                     monkeypatch: pytest.MonkeyPatch) -> None:
-    """DGHUB_PLUGIN_DIR 优先于形态起点；显式参数优先于 env。"""
+    """DGHUB_PLUGIN_ROOT 优先于形态起点；显式参数优先于 env。"""
     env_dir = tmp_path / "env-root"
-    monkeypatch.setenv("DGHUB_PLUGIN_DIR", str(env_dir))
+    monkeypatch.setenv("DGHUB_PLUGIN_ROOT", str(env_dir))
     plugin_root.cache_clear()
     try:
         assert plugin_root() == env_dir.resolve()
@@ -249,7 +249,7 @@ def test_agent_default_plugin_root(agent_environment: Path,
     plugin_root()"简单方案的已知边界（frozen/env 场景不受影响）。
     """
     monkeypatch.delenv("DGHUB_MANIFEST_DIR", raising=False)
-    monkeypatch.delenv("DGHUB_PLUGIN_DIR", raising=False)
+    monkeypatch.delenv("DGHUB_PLUGIN_ROOT", raising=False)
     plugin_root.cache_clear()
     try:
         agent = Agent(max_retries=0)

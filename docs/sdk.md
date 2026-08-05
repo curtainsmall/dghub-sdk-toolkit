@@ -79,7 +79,7 @@ if agent.is_ready():
 - **exe（Packer 产物）**：exe 所在目录（Packer onedir 布局下 exe 与
   manifest.json、资源同级于插件根）
 - **源码（开发调试）**：调用该函数的文件所在目录
-- **`DGHUB_PLUGIN_DIR`**：服务端/调试器注入插件根时优先使用（约定绝对路径）
+- **`DGHUB_PLUGIN_ROOT`**：服务端/调试器注入插件根时优先使用（约定绝对路径）
 
 ```python
 import dghub_sdk
