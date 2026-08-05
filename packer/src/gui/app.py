@@ -117,6 +117,9 @@ class App(ctk.CTk):
         # -- auto-load last plugin dir --
         self._auto_open_last_plugin_dir()
 
+        # 启动即检查更新（后台线程，不阻塞 UI）
+        self._auto_check_update()
+
         # 退出时终止正在运行的构建（避免残留子进程）
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -505,6 +508,92 @@ class App(ctk.CTk):
         if self._running and self._canceller is not None:
             self._canceller.cancel()
         self.destroy()
+
+    # ------------------------------------------------------------------
+    # in-app update
+    # ------------------------------------------------------------------
+
+    def _auto_check_update(self) -> None:
+        """启动即检查更新（每次启动都查，弹窗条件按版本判断）。
+
+        dev / 无版本构建（本地源码运行）跳过检查。
+        """
+        from backend.updater import (get_current_version, check_latest,
+                                     should_notify)
+        version = get_current_version()
+        if version in ("dev", "No Version"):
+            return
+
+        def _check() -> None:
+            latest, url, size = check_latest()
+            if latest and url and should_notify(latest, version):
+                self.after(0, lambda: self._on_new_version_found(
+                    latest, url, size))
+
+        threading.Thread(target=_check, daemon=True).start()
+
+    def _on_new_version_found(self, latest: str, url: str, size: int) -> None:
+        """自动检测到新版本：弹自定义对话框询问，是则切到设置页。
+
+        对话框提供「下载 / 安装」与「取消」按钮及「不要此版本」复选框
+        （勾选后点取消 → 跳过该版本）。
+        """
+        if self._ask_new_version(latest, url, size):
+            self._tab_view.set("设置")
+            self._settings_view.show_update(latest, url, size)
+            # 未下载过 → 弹窗点「下载」后自动开始下载
+            from backend.updater import update_dest
+            if not update_dest(latest).is_file():
+                self._settings_view.start_download()
+
+    def _ask_new_version(self, latest: str, url: str, size: int) -> bool:
+        """自定义更新询问对话框。返回 True = 用户选择下载/安装。"""
+        from backend.updater import skip_version, update_dest
+        dest = update_dest(latest)
+        has_installer = dest.is_file()
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("发现新版本")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        text = (f"发现 DGHub SDK Packer {latest}，安装包已下载，是否安装？"
+                if has_installer
+                else f"发现 DGHub SDK Packer {latest}，是否下载？")
+        ctk.CTkLabel(dialog, text=text, font=ctk.CTkFont(size=14),
+                     wraplength=380, justify="left").pack(
+            padx=24, pady=(24, 10))
+
+        skip_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(dialog, text="忽略此版本",
+                        variable=skip_var).pack(padx=24, pady=5, anchor="w")
+
+        result = {"ok": False}
+
+        def _on_ok() -> None:
+            result["ok"] = True
+            dialog.destroy()
+
+        def _on_cancel() -> None:
+            if skip_var.get():
+                skip_version(latest)
+            dialog.destroy()
+
+        btns = ctk.CTkFrame(dialog, fg_color="transparent")
+        btns.pack(padx=24, pady=(10, 24))
+        ctk.CTkButton(btns, text="取消", width=100,
+                      command=_on_cancel).pack(side="left", padx=5)
+        ctk.CTkButton(btns, text="安装" if has_installer else "下载",
+                      width=100, command=_on_ok).pack(side="left", padx=5)
+
+        # 居中于主窗口
+        dialog.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - dialog.winfo_width()) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+        dialog.wait_window()
+        return result["ok"]
 
     def _run_build(self) -> None:
         """Validate and execute the build pipeline."""
