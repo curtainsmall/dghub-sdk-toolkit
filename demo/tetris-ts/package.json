@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "俄罗斯方块 DGHub 插件示例（TypeScript/Node 终端版）— Tetris demo plugin for DGHub",
   "type": "module",
+  "main": "dist/main.js",
   "scripts": {
     "build": "tsc",
     "start": "node dist/main.js"

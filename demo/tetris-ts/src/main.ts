@@ -26,9 +26,12 @@ function onConfig(configs: Record<string, unknown>): void {
   }
 }
 
-/** 终端原始模式：逐键读取（对齐 pygame 事件循环）。 */
+/** 终端原始模式：逐键读取（对齐 pygame 事件循环）；非 TTY（SEA/管道）跳过。 */
 function setupInput(onKey: (key: string) => void): void {
   const stdin = process.stdin;
+  if (!stdin.isTTY) {
+    return; // 无交互终端（如 DGHub 管道启动）：不注册键盘
+  }
   stdin.setRawMode(true);
   stdin.resume();
   stdin.setEncoding("utf8");
@@ -45,8 +48,10 @@ function setupInput(onKey: (key: string) => void): void {
 }
 
 function restoreInput(): void {
-  process.stdin.setRawMode(false);
-  process.stdin.pause();
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(false);
+    process.stdin.pause();
+  }
 }
 
 function main(): void {

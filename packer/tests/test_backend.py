@@ -250,7 +250,7 @@ def test_python_compiler_validate(make_project):
 
 
 def test_compiler_registry():
-    assert set(COMPILERS) == {"", "python", "command"}
+    assert set(COMPILERS) == {"", "python", "node", "command"}
     # 「无」也是合法编译系统：空串/未知 id 恒返回实例（非 None）
     none_comp = get_compiler("")
     assert none_comp.id == "" and none_comp.label == "无"
