@@ -7,7 +7,30 @@
 版本号为 toolkit 发布批次号，Packer 与 SDK 统一使用；SDK 仅在自身有变更
 的批次发布至 PyPI（版本跳号为预期行为）。
 
-## [0.7.1] - 2026-08-05
+## [0.8.0] - 2026-08-08
+
+### 新增
+
+- **SDK**：TypeScript SDK（npm `dghub-sdk`）——Agent / codec / enums / 环境变量
+  与 Python 版功能对齐，入口 = `package.json` `main`；单元测试 25 项（node:test）
+- **demo**：`tetris-ts` 俄罗斯方块示例（TypeScript + SDL2 窗口 + canvas 渲染），
+  与 Python 版功能对齐（Agent 集成 / 配置回调 / 惩罚触发）
+- **Packer**：Node 编译体系——按 `package.json` 安装依赖、tsc 编译（可选）、
+  SEA 打包自包含 exe
+
+### 修复
+
+- **Packer**：CLI 与调试构建读取 Node 编译配置；TS 项目入口为编译产物时
+  校验放宽（由编译生成）；调试构建保留 PyInstaller 与 tsc 增量缓存
+- **Packer**：调试页提示按编译系统分层（清单不匹配 > 入口缺失），状态分阶段
+  显示（启动 / 构建中 / 运行中）；切换编译系统刷新依赖清单标注
+
+### 变更
+
+- **docs**：SDK 使用指南拆分为 Python / TypeScript 两册（各含完整说明），
+  包 README 回归极简（PyPI / npm 展示）
+
+## [0.7.0] - 2026-08-05
 
 ### 新增
 

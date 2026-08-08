@@ -1,26 +1,24 @@
 ﻿# DGHub SDK Toolkit
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.5%2B-blue)
 ![License](https://img.shields.io/badge/License-AGPLv3-green)
 
-[DGHub](http://dghub.top/) 插件开发工具集，包含 Python SDK 和图形化打包工具。
+[DGHub](http://dghub.top/) 插件开发工具集，包含 Python / TypeScript SDK 和图形化打包工具。
 
 ## SDK
 
-位于 `sdk/python/`，提供插件与 DGHub 主程序之间的 WebSocket 通信封装。
+提供插件与 DGHub 主程序之间的 WebSocket 通信封装，各语言实现功能对齐：
+自动连接与会话管理、配置同步、强度控制、设备状态监听。
 
-- 自动连接与会话管理
-- 配置同步
-- 强度控制
-- 设备状态监听
+### Python
 
-### 安装（PyPI 为官方分发渠道）：
+位于 `sdk/python/`。
 
 ```bash
 pip install dghub-sdk
 ```
 
-### 使用
 ```python
 import dghub_sdk
 
@@ -31,13 +29,35 @@ with dghub_sdk.Agent() as agent:
         agent.poll()
 ```
 
-详细用法参见 [SDK 使用指南](docs/sdk.md)。
+### TypeScript
+
+位于 `sdk/typescript/`。
+
+```bash
+npm install dghub-sdk
+```
+
+```ts
+import { Agent } from "dghub-sdk";
+
+let running = true;
+const agent = new Agent({
+  onStop: () => { running = false; },
+});
+agent.start();
+await agent.waitReady(10);   // 等待握手完成后再 poll
+while (running) {
+  agent.poll();
+}
+```
+
+详细用法参见 [Python SDK 使用指南](docs/sdk-python.md) 与 [TypeScript SDK 使用指南](docs/sdk-typescript.md)。
 
 ## Packer
 
 位于 `packer/`，图形化桌面应用，帮助开发者打包和分发 DGHub 插件（纯 GUI 工具）。
 
-- 两阶段构建 — compile 编译（Python uv+PyInstaller / 自定义命令 / 无）→ 统一 build 步骤；Python 编译入口由用户在 `pyproject.toml` 的 `[tool.dghub].entry` 中声明，Packer 直接读取，无需在 GUI 重复填写
+- 两阶段构建 — compile 编译（Python uv+PyInstaller / Node npm+SEA / 自定义命令 / 无）→ 统一 build 步骤；编译入口由清单声明（Python `pyproject.toml` 的 `[tool.dghub].entry`、Node `package.json` 的 `main`），Packer 直接读取，无需在 GUI 重复填写
 - 插件信息编辑 — 可视化填写元信息与 `config_schema`，产物 `manifest.json` 构建时自动生成
 - 依赖管理 — 依赖由项目自身清单（`pyproject.toml`）声明，自动下载并打进自包含 exe（onedir）
 - 打包内容 — 文件 / 目录 / 规则三种条目、`入口` 标记；Python 编译产物（exe + `_internal/`）自动显式声明，编译时从产物树兑现；双击条目查看完整路径 / 重选 / 改标签；校验错误条目级红框高亮
@@ -66,7 +86,8 @@ uv run --project packer python packer/build.py
 
 ## Demo
 
-`demo/tetris/` — 俄罗斯方块示例插件，演示 SDK 集成与强度触发。
+- `demo/tetris-py/` — 俄罗斯方块示例插件（Python + pygame），演示 SDK 集成与强度触发
+- `demo/tetris-ts/` — 俄罗斯方块示例插件（TypeScript + SDL2 窗口），与 Python 版功能对齐
 
 ## License
 

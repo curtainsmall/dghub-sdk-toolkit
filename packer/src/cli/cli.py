@@ -74,18 +74,23 @@ def _make_ctx(pm: ProjectManager, plugin_dir: str, logger: Logger,
     out_cfg = project.get("builder", {})
     output_dir = (pm.to_absolute(out_cfg.get("output_dir", ""))
                   or str(Path(plugin_dir) / "output"))
-    if compile_system == "python":
-        compile_cfg = {
-            "manifest": project.get("manifest", ""),
-            "include_sdk": bool(project.get("include_sdk", True)),
-        }
-    elif compile_system == "command":
-        compile_cfg = {
-            "compile": project.get("compile", ""),
-            "compile_dir": project.get("compile_dir", ""),
-        }
-    else:
-        compile_cfg = {}
+    match compile_system:
+        case "python":
+            compile_cfg = {
+                "manifest": project.get("manifest", ""),
+                "include_sdk": bool(project.get("include_sdk", True)),
+            }
+        case "node":
+            compile_cfg = {
+                "manifest": project.get("manifest", ""),
+            }
+        case "command":
+            compile_cfg = {
+                "compile": project.get("compile", ""),
+                "compile_dir": project.get("compile_dir", ""),
+            }
+        case _:
+            compile_cfg = {}
     return BuildContext(
         plugin_dir=Path(plugin_dir),
         source_dir=Path(plugin_dir),

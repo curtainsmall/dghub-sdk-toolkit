@@ -1,0 +1,40 @@
+{
+  "name": "dghub-sdk",
+  "version": "0.1.0",
+  "description": "DGHub SDK for TypeScript/Node.js — feature-parity with the Python SDK (Agent, codec, enums)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test \"tests/*.test.ts\"",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "dghub",
+    "sdk",
+    "websocket",
+    "plugin"
+  ],
+  "license": "AGPL-3.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.5.12",
+    "typescript": "^5.5.0"
+  }
+}

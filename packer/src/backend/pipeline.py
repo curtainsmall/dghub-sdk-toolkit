@@ -37,8 +37,10 @@ class BuildContext:
     pm: Optional[ProjectManager] = None
     pypi_index: str = ""
     canceller: Optional[Canceller] = None
-    # 编译设置字段（compile_system 相关，由 app.py 从 project.json 提取）
+    # 编译设置字段（compile_system 相关，由 app.py 从 project.json 读取）
     compile_cfg: dict[str, Any] = field(default_factory=dict)
+    # 调试构建：保留 .deps / cache（PyInstaller 增量缓存前提）
+    keep_cache: bool = False
 
 
 def validate(ctx: BuildContext) -> list[str]:
@@ -79,7 +81,7 @@ def fill_builder(ctx: BuildContext) -> Optional[list[str]]:
     # 2) deduce：建议编译产物条目（只填空——已存在 entry 条目不重复添加）
     items = ctx.builder.items()
     has_entry = any("entry" in it.get("tags", []) for it in items)
-    deduced = comp.deduce(ctx.compile_cfg, ctx.plugin_name)
+    deduced = comp.deduce(ctx.compile_cfg, ctx.plugin_name, ctx.source_dir)
     if deduced and not has_entry:
         for item in deduced:
             if "path" in item:
@@ -117,6 +119,7 @@ def run_build(ctx: BuildContext, manifest_data: dict[str, Any]) -> Optional[Path
         log=ctx.log,
         pypi_index=ctx.pypi_index,
         canceller=ctx.canceller,
+        keep_cache=ctx.keep_cache,
     )
     if not comp.run(pctx):
         return None
@@ -124,10 +127,9 @@ def run_build(ctx: BuildContext, manifest_data: dict[str, Any]) -> Optional[Path
     # ---- 阶段 2：收集 + manifest + 打包 ----
     out_files: list[tuple[Path, str]] = []
 
-    # Python 编译产物树（derived 条目从 .pyi/<name>/ 解析）
-    prod_dir = ctx.output_dir / ".pyi" / ctx.plugin_name \
-        if ctx.compile_system == "python" else None
-    if ctx.compile_system == "python" and not prod_dir.is_dir():
+    # 编译产物树（derived 条目从各编译的 prod_dir 解析，如 .pyi/<name>/）
+    prod_dir = comp.prod_dir(ctx.output_dir, ctx.plugin_name)
+    if prod_dir is not None and not prod_dir.is_dir():
         ctx.log.error(f"未找到打包产物: {prod_dir}")
         return None
 
@@ -155,4 +157,5 @@ def run_build(ctx: BuildContext, manifest_data: dict[str, Any]) -> Optional[Path
     data.pop("homepage", None)
 
     return package_plugin(ctx, data, out_files,
-                          ctx.builder.get_no_zip())
+                          ctx.builder.get_no_zip(),
+                          keep_cache=ctx.keep_cache)

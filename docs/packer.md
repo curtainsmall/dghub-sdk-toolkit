@@ -31,6 +31,7 @@ Packer 把「源码项目 → DGHub 插件包」拆成两阶段：
 阶段 1：compile 编译（可选，显式单选）
    ├─ (无)          不执行任何构建步骤，直接收集打包内容
    ├─ Python          按依赖清单自动下载依赖 → PyInstaller 打包为自包含 exe（onedir）
+   ├─ Node            按 package.json 安装依赖 → tsc 编译（可选）→ SEA 打包为 exe
    └─ 自定义命令       构建前执行用户命令（如编译），产物由打包内容声明
       │
       ▼
@@ -39,7 +40,8 @@ Packer 把「源码项目 → DGHub 插件包」拆成两阶段：
 ```
 
 插件包结构（通用）：`manifest.json + 入口产物 + 其它资源（保留相对路径）`。
-Python 编译的产物是 onedir 树（`<名>.exe` + `_internal/`），收集时整树进入包。
+Python 编译的产物是 onedir 树（`<名>.exe` + `_internal/`），Node 编译的产物是
+SEA exe（含 Node 运行时）+ `node_modules/` + 入口目录，收集时整树进入包。
 
 ---
 
@@ -52,7 +54,7 @@ Python 编译的产物是 onedir 树（`<名>.exe` + `_internal/`），收集时
 ```
 
 1. **打开插件目录** — 顶部栏选择插件目录（任意文件夹均可；Packer 在其中创建/读取 `.dghub-sdk/` 存放插件配置，首次选择即初始化新项目）
-2. **编译页** — 下拉单选编译（无 / Python / 自定义命令），并按所选编译填写设置（见下）
+2. **编译页** — 下拉单选编译（无 / Python / Node / 自定义命令），并按所选编译填写设置（见下）
 3. **信息页** — 填写插件元信息与配置 schema，产物 `manifest.json` 构建时自动生成
 4. **构建页** — 打包内容（文件/目录/规则，可标记入口；Python 编译产物自动显式声明）与发布选项
 5. **构建** — 导出 `.zip`（分发）或文件夹（调试）
@@ -64,14 +66,16 @@ Python 编译的产物是 onedir 树（`<名>.exe` + `_internal/`），收集时
 
 - **(无)** — 不执行 compile，构建页的打包内容直接收集（纯收集模式）
 - **Python (uv + PyInstaller)** — 依赖清单必填（**仅 `pyproject.toml`**——唯一可声明编译入口 `[tool.dghub].entry` 的清单）；可选「包含 dghub-sdk」；清单格式受支持时绿色 `✓` 标注，不受支持浅红警示；旁有 PyInstaller 可用性标注（已安装绿色 `PyInstaller installed`，缺失红色 `PyInstaller required`，Packer 不自动安装）
+- **Node (npm + SEA)** — 依赖清单必填（仅 `package.json`）；入口 = `main` 字段（缺省 `index.js`）；构建流程：`npm install` → 存在 `tsconfig.json` 时编译（`npm run build`，无脚本则 `npx tsc`）→ SEA 三件套打包自包含 exe（含 Node 运行时，约 50-70MB，Node 生态现状）；产物 = `<名>.exe` + `node_modules/` + 入口目录
 - **自定义命令** — 编译命令必填（如 `dotnet build -c Release`），构建时先在执行目录执行（默认项目根），非零返回码视为构建失败；执行目录可单独选择（默认项目根）
 
-「从编译填充构建内容」按钮（构建页）串联探测与推导：Python 编译会自动
-探测 `pyproject.toml`（建议清单）并把**编译产物显式声明**为打包内容条目
-——入口 exe（`<插件名>.exe`）与依赖目录 `_internal/`（标注「编译产物」、
+「从编译填充构建内容」按钮（构建页）串联探测与推导：Python / Node 编译会自动
+探测对应清单（`pyproject.toml` / `package.json`，建议清单）并把**编译产物显式
+声明**为打包内容条目——Python：入口 exe（`<插件名>.exe`）与依赖目录
+`_internal/`；Node：SEA exe 与 `node_modules/`、入口目录（标注「编译产物」、
 只读不可编辑/删除）；只填空，不覆盖已有设置。
-编译入口（`.py` 源码）由用户在 `pyproject.toml` 的
-`[tool.dghub].entry` 中声明，Packer 构建时读取，不入 project.json。
+编译入口由用户在清单中声明（Python：`pyproject.toml` 的 `[tool.dghub].entry`；
+Node：`package.json` 的 `main` 字段），Packer 构建时读取，不入 project.json。
 
 ### 构建
 

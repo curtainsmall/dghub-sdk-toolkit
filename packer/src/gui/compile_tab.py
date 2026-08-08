@@ -1,6 +1,6 @@
 ﻿"""Compile tab — compile 编译选择与设置（下拉单选 + 字段联动）。
 
-编译由 ``compile_system`` 字段显式单选：""（无）/ "python" / "command"。
+编译由 ``compile_system`` 字段显式单选：""（无）/ "python" / "node" / "command"。
 选中后显示对应设置字段；一切语言相关解析（清单识别、[tool.dghub].entry）
 在编译内（backend.compilers），本页只做 UI 呈现与持久化。
 """
@@ -188,19 +188,45 @@ class CompileTab(ctk.CTkFrame):
         if self._loading:
             return
         self._update_visibility()
+        # 编译系统变化 → 按新编译重新标注依赖清单（✓/未知/未选择）
+        self._refresh_manifest_label()
         if self._pm:
             self._pm.set_field("compile_system", self._compile_id())
         self._check_pyinstaller_bg()  # Python 选中时后台预检
         if self._on_changed:
             self._on_changed()
 
+    def _refresh_manifest_label(self) -> None:
+        """按当前编译系统重新标注依赖清单选择（切换编译时刷新错误状态）。"""
+        manifest = self._manifest_var.get()
+        if manifest:
+            comp = get_compiler(self._compile_id())
+            name = Path(manifest).name
+            if comp.is_known_manifest(name):
+                self._manifest_label.configure(
+                    text=f"✓ {name}", text_color="green")
+            else:
+                self._manifest_label.configure(
+                    text=f"? {name} 未知清单",
+                    text_color=("#C0504D", "#E57373"))
+        else:
+            self._manifest_label.configure(
+                text="未选择", text_color=("gray60", "gray60"))
+
     def _update_visibility(self) -> None:
-        """按编译系统选项整区切换设置区（None / Python / Command）。"""
+        """按编译系统选项整区切换设置区（None / Python+Node / Command）。"""
         cid = self._compile_id()
         self._py_frame.grid_remove()
         self._cmd_frame.grid_remove()
         self._none_frame.grid_remove()
-        if cid == "python":
+        if cid in ("python", "node"):
+            # Node 与 Python 共用依赖清单区；Node 隐藏 SDK 与预检行
+            if cid == "node":
+                self._include_sdk_cb.grid_remove()
+                self._pyinstaller_hint.grid_remove()
+            else:
+                self._include_sdk_cb.grid()
+                self._pyinstaller_hint.grid()
             self._py_frame.grid()
         elif cid == "command":
             self._cmd_frame.grid()
@@ -224,16 +250,16 @@ class CompileTab(ctk.CTkFrame):
         if not self._plugin_dir:
             return
         f = filedialog.askopenfilename(
-            title="选择依赖清单（pyproject.toml）",
+            title="选择依赖清单（pyproject.toml / package.json）",
             initialdir=self._plugin_dir,
-            filetypes=[("依赖清单", ("pyproject.toml",)),
+            filetypes=[("依赖清单", ("pyproject.toml", "package.json")),
                        ("所有文件", "*.*")])
         if not f:
             return
         rel = self._pm.to_relative(f) if self._pm else f
         self._manifest_var.set(rel)
-        # 类型标注：可识别 = 绿色 ✓；否则浅红警示
-        comp = get_compiler("python")
+        # 类型标注：可识别 = 绿色 ✓；否则浅红警示（按当前编译系统判断）
+        comp = get_compiler(self._compile_id())
         name = Path(f).name
         if comp.is_known_manifest(name):
             self._manifest_label.configure(text=f"✓ {name}", text_color="green")
@@ -327,21 +353,8 @@ class CompileTab(ctk.CTkFrame):
                 self._compile_dir = (self._pm.to_absolute(rel_exec)
                                   if rel_exec else "")
                 self._refresh_exec_display()
-                # 清单标注
-                manifest = project.get("manifest", "")
-                if manifest:
-                    comp = get_compiler("python")
-                    name = Path(manifest).name
-                    if comp.is_known_manifest(name):
-                        self._manifest_label.configure(
-                            text=f"✓ {name}", text_color="green")
-                    else:
-                        self._manifest_label.configure(
-                            text=f"? {name} 未知清单",
-                            text_color=("#C0504D", "#E57373"))
-                else:
-                    self._manifest_label.configure(
-                        text="未选择", text_color=("gray60", "gray60"))
+                # 清单标注（按当前编译系统判断，切换/加载共用）
+                self._refresh_manifest_label()
             finally:
                 self._loading = False
             self._update_visibility()
@@ -370,6 +383,8 @@ class CompileTab(ctk.CTkFrame):
         if cid == "python":
             return {"manifest": self._manifest_var.get(),
                     "include_sdk": self._include_sdk_var.get()}
+        if cid == "node":
+            return {"manifest": self._manifest_var.get()}
         if cid == "command":
             return {"compile": self._compile_var.get(),
                     "compile_dir": self._compile_dir}
