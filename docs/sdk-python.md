@@ -1,13 +1,25 @@
-# dghub_sdk 使用指南
+# DGHub SDK Python 使用指南
 
-社区 Python SDK，为 DGHub 插件提供同步风格的 WebSocket 通信封装。
+社区 Python SDK（`dghub_sdk`），为 DGHub 插件提供同步风格的 WebSocket 通信封装。
 协议细节请参考 [PLUGIN_DEVELOPMENT.md](PLUGIN_DEVELOPMENT.md)。
+
+## 目录
+
+- [安装](#安装)
+- [快速开始](#快速开始)
+- [插件根目录与资源文件](#插件根目录与资源文件)
+- [配置监听](#配置监听)
+- [强度触发](#强度触发)
+- [状态上报](#状态上报)
+- [错误处理](#错误处理)
+- [手动接入（调试）](#手动接入调试)
+- [更多](#更多)
 
 ---
 
 ## 安装
 
-从 PyPI 安装（SDK 的唯一官方分发渠道）：
+从 PyPI 安装：
 
 ```bash
 pip install dghub-sdk
@@ -25,8 +37,6 @@ pip install dghub-sdk
 > pip install -r requirements.txt
 > python build_sdk.py          # 产物输出到 dist/
 > ```
-
----
 
 ## 快速开始
 
@@ -94,16 +104,12 @@ with dghub_sdk.Agent() as agent:
 
 1. 显式传入——绝对原样；相对以调用方文件目录为基准（raw SDK 用户自写
    插件目录 + manifest.json 时使用）
-2. `DGHUB_MANIFEST_DIR` 环境变量——Packer 调试注入（约定绝对路径；
-   未来「debug via packer」会注入 `plugin_dir/.dghub-sdk`，用户代码
-   零改动）
+2. `DGHUB_MANIFEST_DIR` 环境变量——Packer 调试注入（约定绝对路径）
 3. 均未提供——直接用 `plugin_root()` 的插件根（Packer 用户 `Agent()`
    零参数）
 
 手动运行源码且插件根没有 manifest.json 时，握手会报 `FileNotFoundError`
 （插件根 manifest 是构建产物；未使用 Packer 的项目需自行维护）。
-
----
 
 ## 配置监听
 
@@ -150,9 +156,6 @@ with dghub_sdk.Agent(on_config=on_config,
 - `target_id` 由 DGHub 管理，插件不能通过 `set_config` 修改
 - 握手后收到一次全量 `config`，之后用户修改配置会收到单字段 `config_changed`
 - `set_config` 发送后不会回推 `config_changed`，插件应在发送后同步更新自己的本地缓存
-
-
----
 
 ## 强度触发
 
@@ -240,8 +243,6 @@ agent.send_pulse(
 该字段，因此 V2/V3 和旧调用方式保持不变。`target_id` 仍由 DGHub 管理，
 不要用 `send_set_config()` 修改它。
 
----
-
 ## 状态上报
 
 SDK 提供多个便捷方法上报插件状态：
@@ -290,8 +291,6 @@ agent.send_status_field("tick", 42)
 agent.send_status({"custom_field": 42})
 ```
 
----
-
 ## 错误处理
 
 后台线程中的异常不会直接抛出，而是被收集到内部队列。
@@ -305,8 +304,6 @@ while running:
         print(f"[错误] {exc}")
         # 根据严重程度决定是否退出
 ```
-
----
 
 ## 手动接入（调试）
 

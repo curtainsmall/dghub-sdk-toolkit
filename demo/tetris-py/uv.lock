@@ -4,14 +4,14 @@ requires-python = ">=3.11"
 
 [[package]]
 name = "dghub-sdk"
-version = "0.6.0"
+version = "0.7.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e6/73/070308c27f3f552cf4ca2836d65447d8d13816e3004677c7367c3545331a/dghub_sdk-0.6.0.tar.gz", hash = "sha256:4c9c5370fadced68f4183a88c347fb44b42c377634ff12d96c03342ff2483dea", size = 14481, upload-time = "2026-08-04T09:18:28.487Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bb/c5/b09e4e9158e81c3bc20d5f3baececebe3e375b6e8c64f8a731a4d53d2659/dghub_sdk-0.7.1.tar.gz", hash = "sha256:d82ff3f7105b86f4a9193990d5a260b0d5c59c57dabd9627b905ac7b36f7eaa4", size = 14599, upload-time = "2026-08-05T11:26:59.673Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b2/0d/01402b2810b53e573ffd137097007e3e8f163bf8c5a559f4ddea06976a00/dghub_sdk-0.6.0-py3-none-any.whl", hash = "sha256:ac05146fcb43cc441c43e9538ed5a3838f6e94e7ed5e306f48da18eb0368a61e", size = 12340, upload-time = "2026-08-04T09:18:27.744Z" },
+    { url = "https://files.pythonhosted.org/packages/15/fa/2439d1d963aa71ba94c2dba4f2bff6961395d9ddcf9aab8ee8ebffe70b1d/dghub_sdk-0.7.1-py3-none-any.whl", hash = "sha256:0a0bd3e6be5bcd2577a8ebe508a28146fc486547f995bccc7eb0d64ad3357a05", size = 12435, upload-time = "2026-08-05T11:26:58.906Z" },
 ]
 
 [[package]]

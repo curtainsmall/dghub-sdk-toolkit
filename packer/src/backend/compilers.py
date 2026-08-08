@@ -11,6 +11,7 @@ GUI 与管线不内置任何语言知识。
 不接触 GUI。
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -36,6 +37,8 @@ class CompilerContext:
     log: Logger
     pypi_index: str = ""
     canceller: Optional[Canceller] = None
+    # 调试构建：保留缓存（PyInstaller workpath / tsc tsbuildinfo 增量）
+    keep_cache: bool = False
 
 
 def run_logged(cmd: Any, logger: Logger, source: str,
@@ -109,8 +112,20 @@ class Compiler:
         return errors
 
     def deduce(self, cfg: dict[str, Any],
-                plugin_name: str = "") -> Optional[list[dict[str, Any]]]:
-        """检查设置是否足以推导 Builder 条目；返回建议条目或 None。"""
+                plugin_name: str = "",
+                source_dir: Optional[Path] = None) -> Optional[list[dict[str, Any]]]:
+        """检查设置是否足以推导 Builder 条目；返回建议条目或 None。
+
+        ``source_dir`` 供需要读清单（如入口字段）的编译使用，可选。
+        """
+        return None
+
+    def prod_dir(self, output_dir: Path, plugin_name: str) -> Optional[Path]:
+        """编译产物根目录（derived 条目解析基准）；无产物概念返回 None。
+
+        编译产物约定集中在 output_dir 下、以 .<体系>/<插件名>/ 隔离，
+        由管线在收集阶段传入 ``Builder.resolve(prod_dir=...)``。
+        """
         return None
 
     def debug_source_command(self, plugin_dir: Path) -> Optional[list[str]]:
@@ -152,7 +167,8 @@ class CommandCompiler(Compiler):
         return None
 
     def deduce(self, cfg: dict[str, Any],
-                plugin_name: str = "") -> Optional[list[dict[str, Any]]]:
+                plugin_name: str = "",
+                source_dir: Optional[Path] = None) -> Optional[list[dict[str, Any]]]:
         return None
 
     def run(self, ctx: CompilerContext) -> bool:
@@ -243,7 +259,8 @@ class PythonCompiler(Compiler):
         return errors
 
     def deduce(self, cfg: dict[str, Any],
-                plugin_name: str = "") -> Optional[list[dict[str, Any]]]:
+                plugin_name: str = "",
+                source_dir: Optional[Path] = None) -> Optional[list[dict[str, Any]]]:
         """manifest 已选 → 推导编译产物条目（显式声明，derived 只读）。
 
         - 入口 exe（<插件名>.exe，entry 标签）
@@ -259,6 +276,9 @@ class PythonCompiler(Compiler):
              "derived": True},
             {"dir": "_internal", "derived": True},
         ]
+
+    def prod_dir(self, output_dir: Path, plugin_name: str) -> Optional[Path]:
+        return output_dir / ".pyi" / plugin_name
 
     def debug_source_command(self, plugin_dir: Path) -> Optional[list[str]]:
         """uv run --project 运行 [tool.dghub].entry 源码；entry 缺失返回 None。"""
@@ -343,6 +363,254 @@ def read_tool_dghub_entry(manifest: Path) -> str:
         return ""
 
 
+def read_package_json_main(manifest: Path) -> str:
+    """读 package.json 的 main 入口字段；缺省回退 ``index.js``。
+
+    不存在、非 package.json 或解析失败均返回空串。
+    """
+    if manifest.name != "package.json" or not manifest.is_file():
+        return ""
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        main = data.get("main", "")
+        return main if isinstance(main, str) and main else "index.js"
+    except Exception:
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# NodeCompiler：npm 依赖 + tsc（可选）+ SEA 打包（exe + node_modules + 入口目录）
+# ---------------------------------------------------------------------------
+
+# SEA 注入引导器模板：SEA 内嵌脚本的 require 仅支持内置模块，
+# 外部依赖/入口必须经 import() 动态加载（PoC 验证）
+_SEA_BOOTSTRAP = '''\
+const path = require("path");
+const { pathToFileURL } = require("url");
+import(pathToFileURL(path.join(__dirname, "{entry}")).href)
+  .catch((e) => {{ console.error(e); process.exit(1); }});
+'''
+
+# postject 注入哨兵（官方固定值）
+_SEA_FUSE = "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2"
+
+
+def _node_tool(name: str) -> list[str]:
+    """解析 npm/npx 可执行路径（Windows 下为 .cmd，需经 cmd.exe 执行）。"""
+    path = shutil.which(name)
+    if path and path.lower().endswith((".cmd", ".bat")):
+        return ["cmd.exe", "/c", path]
+    return [path or name]
+
+
+class NodeCompiler(Compiler):
+    """npm 按 package.json 安装依赖 → tsc 编译（可选）→ SEA 打包。
+
+    产物约定（onedir，同 PyInstaller 模式）：``out_dir/.node/<name>/`` 下
+    的 SEA exe（含 Node 运行时 + 引导器）+ ``node_modules/`` + 入口目录。
+    入口 = package.json ``main``（生态标准，缺省 index.js）。
+    """
+
+    id = "node"
+    label = "Node (npm + SEA)"
+    description = ("按 package.json 安装依赖并打包为自包含 exe"
+                   "（npm + tsc 可选 + SEA 单文件运行时）")
+    fields = {
+        "manifest": {"label": "依赖清单", "type": "str",
+                     "default": "", "required": True},
+    }
+
+    def enabled(self, cfg: dict[str, Any]) -> bool:
+        return bool(cfg.get("manifest"))
+
+    def is_known_manifest(self, filename: str) -> bool:
+        return filename.lower() == "package.json"
+
+    def probe(self, plugin_dir: Path) -> Optional[dict[str, Any]]:
+        """探测 package.json → 建议 manifest。"""
+        if (plugin_dir / "package.json").is_file():
+            return {"manifest": "package.json"}
+        return None
+
+    def check_available(self) -> tuple[bool, str]:
+        try:
+            result = subprocess.run(
+                ["node", "--version"], capture_output=True, text=True,
+                timeout=10, creationflags=_NO_WINDOW)
+            if result.returncode == 0:
+                return True, "需要 Node.js 20+（SEA）"
+        except Exception:
+            pass
+        return False, "未检测到 node，请安装 Node.js 20+"
+
+    def validate(self, cfg: dict[str, Any],
+                 source_dir: Path) -> list[str]:
+        errors = super().validate(cfg, source_dir)
+        manifest = cfg.get("manifest", "")
+        if manifest and not self.is_known_manifest(Path(manifest).name):
+            errors.append(f"无法识别的依赖清单: {Path(manifest).name}"
+                          "（Node 编译仅支持 package.json）")
+        entry = read_package_json_main(Path(source_dir) / manifest) \
+            if manifest else ""
+        if not entry:
+            errors.append("package.json 缺少 main 入口字段"
+                          "（Node 编译入口，缺省 index.js）")
+        elif not (source_dir / entry).is_file():
+            # TS 项目入口为 tsc 产物：构建前不存在，由编译生成（resolve 兜底）
+            if not (source_dir / "tsconfig.json").is_file():
+                errors.append(f"入口文件不存在: {entry}")
+        return errors
+
+    def deduce(self, cfg: dict[str, Any],
+                plugin_name: str = "",
+                source_dir: Optional[Path] = None) -> Optional[list[dict[str, Any]]]:
+        """manifest 已选 → 推导产物条目：SEA exe + node_modules + 入口目录。"""
+        if not cfg.get("manifest") or not plugin_name:
+            return None
+        items: list[dict[str, Any]] = [
+            {"path": f"{plugin_name}.exe", "tags": ["entry"],
+             "derived": True},
+            {"dir": "node_modules", "derived": True},
+        ]
+        # 入口所在目录（dist / src …）随产物收集；入口在根则只收入口文件
+        if source_dir is not None:
+            entry = read_package_json_main(
+                source_dir / str(cfg.get("manifest", "")))
+            entry_dir = str(Path(entry).parent) if entry else ""
+            if entry_dir not in ("", "."):
+                items.append({"dir": entry_dir, "derived": True})
+            elif entry:
+                items.append({"path": entry, "derived": True})
+        return items
+
+    def debug_source_command(self, plugin_dir: Path) -> Optional[list[str]]:
+        """node 运行 package.json main 入口；入口缺失返回 None。"""
+        entry = read_package_json_main(plugin_dir / "package.json")
+        if not entry:
+            return None
+        return ["node", entry]
+
+    def prod_dir(self, output_dir: Path, plugin_name: str) -> Optional[Path]:
+        return output_dir / ".node" / plugin_name
+
+    def run(self, ctx: CompilerContext) -> bool:
+        manifest = ctx.cfg.get("manifest", "")
+        if not manifest:
+            ctx.log.error("依赖清单为空")
+            return False
+        manifest_path = Path(ctx.source_dir) / manifest
+        if not manifest_path.is_file():
+            ctx.log.error(f"依赖清单不存在: {manifest_path}")
+            return False
+
+        entry = read_package_json_main(manifest_path)
+        if not entry:
+            ctx.log.error("package.json 缺少 main 入口字段"
+                          "（Node 编译入口，缺省 index.js）")
+            return False
+
+        # 1) npm 安装依赖（产物所需 node_modules 生成于插件目录）
+        ctx.log.info(f"依赖来源: {manifest}，npm install ...")
+        lock_existed = (ctx.source_dir / "package-lock.json").exists()
+        ok = run_logged([*_node_tool("npm"), "install", "--no-audit", "--no-fund"],
+                        ctx.log, "npm", cwd=str(ctx.source_dir),
+                        canceller=ctx.canceller)
+        if not ok:
+            ctx.log.error("依赖安装失败")
+            return False
+        ctx.log.info("依赖安装完成")
+
+        # 2) TS 项目（tsconfig.json 存在）→ 编译；调试构建用增量 tsc
+        if (ctx.source_dir / "tsconfig.json").is_file():
+            if ctx.keep_cache:
+                # 调试构建：增量编译，tsbuildinfo 缓存放 debug/cache/
+                # （对齐 PyInstaller 缓存位置，二次调试编译只重编译变更）
+                cache_dir = ctx.output_dir / "cache"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                build_cmd = [*_node_tool("npx"), "tsc", "--incremental",
+                             "--tsBuildInfoFile",
+                             str(cache_dir / "tsbuildinfo.json")]
+                ctx.log.info("调试构建：增量 tsc 编译（缓存 debug/cache/）")
+            else:
+                pkg = json.loads(manifest_path.read_text(encoding="utf-8"))
+                scripts = pkg.get("scripts", {}) if isinstance(pkg, dict) else {}
+                if isinstance(scripts, dict) and scripts.get("build"):
+                    build_cmd = [*_node_tool("npm"), "run", "build"]
+                else:
+                    build_cmd = [*_node_tool("npx"), "tsc"]
+            ctx.log.info(f"编译 TS: {' '.join(build_cmd)}")
+            ok = run_logged(build_cmd, ctx.log, "tsc",
+                            cwd=str(ctx.source_dir),
+                            canceller=ctx.canceller)
+            if not ok:
+                ctx.log.error("TS 编译失败")
+                return False
+
+        # 3) 生成 SEA 引导器 + sea-config（临时文件，构建后清理）
+        bootstrap = ctx.source_dir / "sea-bootstrap.cjs"
+        bootstrap.write_text(
+            _SEA_BOOTSTRAP.replace("{entry}",
+                                   entry.replace(chr(92), "/")),
+            encoding="utf-8")
+        sea_config = ctx.source_dir / "sea-config.json"
+        sea_config.write_text(json.dumps({
+            "main": "sea-bootstrap.cjs",
+            "output": "sea-prep.blob",
+        }), encoding="utf-8")
+
+        # 4) SEA 三件套：快照 → 复制 node.exe → postject 注入
+        prod_dir = ctx.output_dir / ".node" / ctx.plugin_name
+        prod_dir.mkdir(parents=True, exist_ok=True)
+        exe_path = prod_dir / f"{ctx.plugin_name}.exe"
+        try:
+            ok = run_logged(
+                ["node", "--experimental-sea-config", "sea-config.json"],
+                ctx.log, "SEA", cwd=str(ctx.source_dir),
+                canceller=ctx.canceller)
+            if not ok:
+                return False
+            node_exe = shutil.which("node")
+            if not node_exe:
+                ctx.log.error("未找到 node.exe")
+                return False
+            shutil.copy2(node_exe, exe_path)
+            ctx.log.info("注入 SEA 引导器...")
+            ok = run_logged(
+                [*_node_tool("npx"), "--yes", "postject",
+                 str(exe_path), "NODE_SEA_BLOB", "sea-prep.blob",
+                 "--sentinel-fuse", _SEA_FUSE],
+                ctx.log, "postject", cwd=str(ctx.source_dir),
+                canceller=ctx.canceller)
+            if not ok:
+                return False
+        finally:
+            bootstrap.unlink(missing_ok=True)
+            sea_config.unlink(missing_ok=True)
+            (ctx.source_dir / "sea-prep.blob").unlink(missing_ok=True)
+
+        # 5) 收集产物：node_modules + 入口目录 → prod_dir
+        node_modules = ctx.source_dir / "node_modules"
+        if node_modules.is_dir():
+            shutil.copytree(node_modules, prod_dir / "node_modules",
+                            dirs_exist_ok=True)
+        entry_dir = Path(entry).parent
+        if str(entry_dir) != ".":
+            src = ctx.source_dir / entry_dir
+            if src.is_dir():
+                shutil.copytree(src, prod_dir / entry_dir,
+                                dirs_exist_ok=True)
+        else:
+            src = ctx.source_dir / entry
+            if src.is_file():
+                shutil.copy2(src, prod_dir / entry)
+
+        # 6) 清理：构建期间生成的 package-lock.json（若原本不存在）
+        if not lock_existed:
+            (ctx.source_dir / "package-lock.json").unlink(missing_ok=True)
+        ctx.log.info("exe 构建完成")
+        return True
+
+
 # ---------------------------------------------------------------------------
 # NoneCompiler：「无」编译系统（合法注册的空操作实现）
 # ---------------------------------------------------------------------------
@@ -368,6 +636,7 @@ class NoneCompiler(Compiler):
 COMPILERS: dict[str, Compiler] = {
     "": NoneCompiler(),
     "python": PythonCompiler(),
+    "node": NodeCompiler(),
     "command": CommandCompiler(),
 }
 
@@ -375,6 +644,7 @@ COMPILERS: dict[str, Compiler] = {
 COMPILER_CHOICES: tuple[tuple[str, str], ...] = (
     ("", "无"),
     ("python", "Python (uv + PyInstaller)"),
+    ("node", "Node (npm + SEA)"),
     ("command", "自定义命令"),
 )
 
