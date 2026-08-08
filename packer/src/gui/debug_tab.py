@@ -289,6 +289,7 @@ class DebugTab(ctk.CTkFrame):
             pypi_index=settings_store.get_state("pypi_index", ""),
             canceller=canceller,
             compile_cfg=compile_cfg,
+            keep_cache=True,  # 调试构建保留 .deps / cache（PyInstaller 增量）
         )
 
     def _run(self) -> None:

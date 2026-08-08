@@ -11,12 +11,16 @@ from pathlib import Path
 from typing import Any
 
 
-def cleanup_intermediates(output_dir: Path, plugin_name: str) -> None:
+def cleanup_intermediates(output_dir: Path, plugin_name: str,
+                          keep_cache: bool = False) -> None:
     """删除输出目录内的构建中间产物（.deps / .pyi / cache）。
 
-    产物（<name>.zip 或 <name>/ 目录）保留。
+    产物（<name>.zip 或 <name>/ 目录）保留。``keep_cache=True``
+    （调试构建）时保留 .deps / cache——PyInstaller 增量缓存的前提，
+    下次调试构建复用 Analysis 结果加速。
     """
-    for name in (".deps", ".pyi", "cache"):
+    names = (".pyi",) if keep_cache else (".deps", ".pyi", "cache")
+    for name in names:
         d = output_dir / name
         if d.is_dir():
             shutil.rmtree(d, ignore_errors=True)
@@ -24,11 +28,13 @@ def cleanup_intermediates(output_dir: Path, plugin_name: str) -> None:
 
 def package_plugin(ctx: Any, manifest_data: dict[str, Any],
                    out_files: list[tuple[Path, str]],
-                   no_zip: bool) -> Path:
+                   no_zip: bool,
+                   keep_cache: bool = False) -> Path:
     """按 no_zip 组装产物并清理中间目录，返回产物路径。
 
     - ``no_zip=False``（默认）→ ``<name>.zip``（分发）
     - ``no_zip=True`` → ``<name>/`` 目录（调试，就地可用）
+    - ``keep_cache=True``（调试构建）→ 保留 .deps / cache 供下次增量
 
     收集阶段的缺失/冲突已由 pipeline 的 Builder.resolve 抛出 BuildError。
     """
@@ -58,5 +64,6 @@ def package_plugin(ctx: Any, manifest_data: dict[str, Any],
         ctx.log.success(f"打包完成: {zip_path} ({size_kb:.1f} KB)")
         artifact = zip_path
 
-    cleanup_intermediates(ctx.output_dir, ctx.plugin_name)
+    cleanup_intermediates(ctx.output_dir, ctx.plugin_name,
+                          keep_cache=keep_cache)
     return artifact

@@ -37,8 +37,10 @@ class BuildContext:
     pm: Optional[ProjectManager] = None
     pypi_index: str = ""
     canceller: Optional[Canceller] = None
-    # 编译设置字段（compile_system 相关，由 app.py 从 project.json 提取）
+    # 编译设置字段（compile_system 相关，由 app.py 从 project.json 读取）
     compile_cfg: dict[str, Any] = field(default_factory=dict)
+    # 调试构建：保留 .deps / cache（PyInstaller 增量缓存前提）
+    keep_cache: bool = False
 
 
 def validate(ctx: BuildContext) -> list[str]:
@@ -155,4 +157,5 @@ def run_build(ctx: BuildContext, manifest_data: dict[str, Any]) -> Optional[Path
     data.pop("homepage", None)
 
     return package_plugin(ctx, data, out_files,
-                          ctx.builder.get_no_zip())
+                          ctx.builder.get_no_zip(),
+                          keep_cache=ctx.keep_cache)
