@@ -203,8 +203,7 @@ def test_python_compiler_probe(tmp_path):
         "[tool.dghub]\nentry='src/main.py'\n")
     py = get_compiler("python")
     assert py.probe(root) == {"manifest": "pyproject.toml",
-                              "include_sdk": True,
-                              "windowed": True}
+                              "include_sdk": True}
     # 无 pyproject → None
     assert py.probe(tmp_path / "empty") is None
 
@@ -257,15 +256,6 @@ def test_compiler_registry():
     assert none_comp.id == "" and none_comp.label == "无"
     assert get_compiler("unknown") is none_comp
     assert none_comp.run(object()) is True  # 阶段 1 空操作
-
-
-def test_python_compiler_windowed_field():
-    py = get_compiler("python")
-    spec = py.fields.get("windowed", {})
-    assert spec.get("type") == "bool" and spec.get("default") is True
-    assert spec.get("label")
-    # 缺省 windowed 传 True（GUI 子系统，现状行为）
-    assert py.run is not None
 
 
 # ---------------------------------------------------------------------------
