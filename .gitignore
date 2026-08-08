@@ -27,6 +27,8 @@ packer/src/backend/_version.py
 sdk/**/dist/
 sdk/**/node_modules/
 demo/**/vendor/
+demo/**/node_modules/
+demo/**/dist/
 demo/**/*.zip
 demo/**/debug/
 

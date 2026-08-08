@@ -1,0 +1,17 @@
+{
+  "name": "tetris-demo-ts",
+  "version": "0.1.0",
+  "description": "俄罗斯方块 DGHub 插件示例（TypeScript/Node 终端版）— Tetris demo plugin for DGHub",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "dghub-sdk": "file:../../sdk/typescript"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}
