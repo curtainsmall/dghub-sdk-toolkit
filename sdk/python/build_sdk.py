@@ -67,6 +67,22 @@ def _patch_version(version: str) -> None:
     print(f"  Patched pyproject.toml → version = {version}")
 
 
+def _to_pep440(version: str) -> str:
+    """将 semver pre-release 后缀转为 PEP 440 格式。"""
+    if "-" not in version:
+        return version
+    base, rest = version.split("-", 1)
+    if rest.startswith("alpha."):
+        return f"{base}a{rest[6:]}"
+    if rest.startswith("beta."):
+        return f"{base}b{rest[5:]}"
+    if rest.startswith("rc."):
+        return f"{base}rc{rest[3:]}"
+    if rest.startswith("dev."):
+        return f"{base}.dev{rest[4:]}"
+    return version  # unknown pattern, leave as-is
+
+
 def _restore_version() -> None:
     """构建后恢复 pyproject.toml 为占位版本。"""
     content = PYPROJECT.read_text(encoding="utf-8")
@@ -112,6 +128,7 @@ def main() -> int:
             version = "0.0.0-dev"
             print(f"Warning: no {TAG_PREFIX}* tag found, using {version}")
 
+    version = _to_pep440(version)
     print(f"SDK Version: {version}")
     _patch_version(version)
     try:

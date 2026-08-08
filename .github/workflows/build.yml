@@ -1,4 +1,4 @@
-name: Build and Release
+﻿name: Build and Release
 
 on:
   push:
@@ -102,7 +102,6 @@ jobs:
 
   build-sdk-py:
     needs: detect-changes
-    if: needs.detect-changes.outputs.sdk == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -134,7 +133,6 @@ jobs:
 
   build-sdk-ts:
     needs: detect-changes
-    if: needs.detect-changes.outputs.sdk_ts == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -166,8 +164,7 @@ jobs:
 
   release:
     needs: [detect-changes, build-packer, build-sdk-py, build-sdk-ts]
-    # build-sdk-py / build-sdk-ts 可能被合法跳过（SDK 无变更），仅要求其不失败
-    if: always() && needs.build-packer.result == 'success' && needs.build-sdk-py.result != 'failure' && needs.build-sdk-ts.result != 'failure' && needs.detect-changes.result == 'success'
+    if: always() && needs.build-packer.result == 'success' && needs.build-sdk-py.result == 'success' && needs.build-sdk-ts.result == 'success' && needs.detect-changes.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
@@ -196,19 +193,7 @@ jobs:
         id: sdknote
         shell: bash
         run: |
-          NOTE=""
-          if [ "${{ needs.detect-changes.outputs.sdk }}" = "true" ]; then
-            NOTE+="本次发布包含 dghub-sdk (Python) 更新，\`pip install -U dghub-sdk\`�?
-            NOTE+=$'\n'
-          fi
-          if [ "${{ needs.detect-changes.outputs.sdk_ts }}" = "true" ]; then
-            NOTE+="本次发布包含 dghub-sdk (TypeScript) 更新，\`npm install dghub-sdk\`�?
-            NOTE+=$'\n'
-          fi
-          if [ -z "$NOTE" ]; then
-            NOTE="本次发布不含 dghub-sdk 更新（自上一版本无变更）。SDK 通过 PyPI / npm 分发�?
-          fi
-          echo "note=$NOTE" >> "$GITHUB_OUTPUT"
+          echo "note=dghub-sdk 更新：\`pip install -U dghub-sdk\` / \`npm install dghub-sdk\`。" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -225,7 +210,6 @@ jobs:
 
   publish-pypi:
     needs: [detect-changes, build-sdk-py]
-    if: needs.detect-changes.outputs.sdk == 'true' && needs.build-sdk-py.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
@@ -242,7 +226,6 @@ jobs:
 
   publish-npm:
     needs: [detect-changes, build-sdk-ts]
-    if: needs.detect-changes.outputs.sdk_ts == 'true' && needs.build-sdk-ts.result == 'success'
     runs-on: ubuntu-latest
 
     steps:

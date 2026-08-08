@@ -316,4 +316,4 @@ npm test          # node:test 单元测试
 ## 更多
 
 - 完整协议字段定义：[PLUGIN_DEVELOPMENT.md](PLUGIN_DEVELOPMENT.md)
-- API 签名与参数说明：参见源码中的 TSDoc 注释
+- API 签名与参数说明：参见源码中的 Google-style docstrings
