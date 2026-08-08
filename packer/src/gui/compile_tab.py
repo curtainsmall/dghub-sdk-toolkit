@@ -41,6 +41,7 @@ class CompileTab(ctk.CTkFrame):
         self._compile_system_var = ctk.StringVar(value="")
         self._manifest_var = ctk.StringVar(value="")
         self._include_sdk_var = ctk.BooleanVar(value=True)
+        self._keep_console_var = ctk.BooleanVar(value=False)  # 勾选 = 保留终端窗口
         self._compile_var = ctk.StringVar(value="")   # 编译命令字符串
         self._compile_dir = ""  # 执行目录（绝对路径；空 = 项目根）
 
@@ -121,10 +122,17 @@ class CompileTab(ctk.CTkFrame):
         self._include_sdk_cb.grid(row=1, column=1, sticky="w", padx=5, pady=4)
         self._controls.append(self._include_sdk_cb)
 
+        self._windowed_cb = ctk.CTkCheckBox(
+            self._py_frame, text="保留终端窗口",
+            variable=self._keep_console_var,
+            command=self._on_setting_changed)
+        self._windowed_cb.grid(row=2, column=1, sticky="w", padx=5, pady=4)
+        self._controls.append(self._windowed_cb)
+
         self._pyinstaller_hint = ctk.CTkLabel(
             self._py_frame, text="", font=ctk.CTkFont(size=12),
             text_color="gray", anchor="w")
-        self._pyinstaller_hint.grid(row=2, column=1, sticky="w", padx=5)
+        self._pyinstaller_hint.grid(row=3, column=1, sticky="w", padx=5)
 
         # ---- Command 设置区（compile_system="command" 时显示）----
         self._cmd_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -322,6 +330,9 @@ class CompileTab(ctk.CTkFrame):
                 self._manifest_var.set(project.get("manifest", ""))
                 self._include_sdk_var.set(
                     bool(project.get("include_sdk", True)))
+                # 后端 windowed 与「保留终端窗口」语义相反：勾选 = 控制台
+                self._keep_console_var.set(
+                    not bool(project.get("windowed", True)))
                 self._compile_var.set(project.get("compile", ""))
                 rel_exec = project.get("compile_dir", "")
                 self._compile_dir = (self._pm.to_absolute(rel_exec)
@@ -356,6 +367,7 @@ class CompileTab(ctk.CTkFrame):
         project["compile_system"] = self._compile_id()
         project["manifest"] = self._manifest_var.get()
         project["include_sdk"] = self._include_sdk_var.get()
+        project["windowed"] = not self._keep_console_var.get()
         project["compile"] = self._compile_var.get()
         project["compile_dir"] = (self._pm.to_relative(self._compile_dir)
                                if self._compile_dir else "")
@@ -369,7 +381,8 @@ class CompileTab(ctk.CTkFrame):
         cid = self._compile_id()
         if cid == "python":
             return {"manifest": self._manifest_var.get(),
-                    "include_sdk": self._include_sdk_var.get()}
+                    "include_sdk": self._include_sdk_var.get(),
+                    "windowed": not self._keep_console_var.get()}
         if cid == "command":
             return {"compile": self._compile_var.get(),
                     "compile_dir": self._compile_dir}

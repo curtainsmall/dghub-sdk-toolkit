@@ -63,7 +63,7 @@ Python 编译的产物是 onedir 树（`<名>.exe` + `_internal/`），收集时
 编译页显式选择 compile 编译（单选下拉），选中后显示对应设置字段：
 
 - **(无)** — 不执行 compile，构建页的打包内容直接收集（纯收集模式）
-- **Python (uv + PyInstaller)** — 依赖清单必填（**仅 `pyproject.toml`**——唯一可声明编译入口 `[tool.dghub].entry` 的清单）；可选「包含 dghub-sdk」；清单格式受支持时绿色 `✓` 标注，不受支持浅红警示；旁有 PyInstaller 可用性标注（已安装绿色 `PyInstaller installed`，缺失红色 `PyInstaller required`，Packer 不自动安装）
+- **Python (uv + PyInstaller)** — 依赖清单必填（**仅 `pyproject.toml`**——唯一可声明编译入口 `[tool.dghub].entry` 的清单）；可选「包含 dghub-sdk」；可选「无控制台窗口（windowed）」（勾选 = GUI 子系统无控制台弹出，适合 pygame 等自绘窗口插件；取消 = 控制台子系统，stdout 可见，适合 CLI 插件）；清单格式受支持时绿色 `✓` 标注，不受支持浅红警示；旁有 PyInstaller 可用性标注（已安装绿色 `PyInstaller installed`，缺失红色 `PyInstaller required`，Packer 不自动安装）
 - **自定义命令** — 编译命令必填（如 `dotnet build -c Release`），构建时先在执行目录执行（默认项目根），非零返回码视为构建失败；执行目录可单独选择（默认项目根）
 
 「从编译填充构建内容」按钮（构建页）串联探测与推导：Python 编译会自动

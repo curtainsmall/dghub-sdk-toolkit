@@ -108,6 +108,7 @@ def build_plugin_exe(
     entry: str = "",
     dep_dir: str = "",
     canceller: Optional[Canceller] = None,
+    windowed: bool = True,
 ) -> bool:
     """Build a self-contained .exe from a DGHub plugin directory (onedir).
 
@@ -120,6 +121,7 @@ def build_plugin_exe(
         entry: 入口文件（相对 source_dir）；缺省时回退读插件根 manifest.json。
         dep_dir: 清单依赖安装目录（.deps）；存在时经 --paths 喂给 PyInstaller。
         canceller: 取消令牌。
+        windowed: GUI 子系统（无控制台窗口）；False = 控制台子系统（stdout 可见）。
 
     Returns:
         True on success.
@@ -158,12 +160,16 @@ def build_plugin_exe(
         "-m", "PyInstaller",
         "--noconfirm",
         "--onedir",
-        "--windowed",
         "--name", exe_name,
         "--distpath", str(pyi_dir),
         "--workpath", str(cache_dir / "pyi_build"),
         "--specpath", str(cache_dir),
     ]
+    if windowed:
+        cmd += ["--windowed"]
+        log.detail("窗口模式: 无控制台（windowed）")
+    else:
+        log.detail("窗口模式: 控制台（stdout 可见）")
 
     # SDK path
     if include_dghub_sdk:

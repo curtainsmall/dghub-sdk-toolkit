@@ -189,6 +189,8 @@ class PythonCompiler(Compiler):
                      "default": "", "required": True},
         "include_sdk": {"label": "包含 dghub-sdk", "type": "bool",
                         "default": True, "required": False},
+        "windowed": {"label": "无控制台窗口（windowed）", "type": "bool",
+                      "default": True, "required": False},
     }
 
     def enabled(self, cfg: dict[str, Any]) -> bool:
@@ -207,6 +209,7 @@ class PythonCompiler(Compiler):
         return {
             "manifest": "pyproject.toml",
             "include_sdk": True,
+            "windowed": True,
         }
 
     def check_available(self) -> tuple[bool, str]:
@@ -311,6 +314,7 @@ class PythonCompiler(Compiler):
             entry=entry,
             dep_dir=str(deps_dir),
             canceller=ctx.canceller,
+            windowed=bool(ctx.cfg.get("windowed", True)),
         )
         if not ok:
             ctx.log.error("exe 构建失败")
