@@ -7,12 +7,14 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
       sdk: ${{ steps.filter.outputs.sdk }}
+      sdk_ts: ${{ steps.filter.outputs.sdk_ts }}
     steps:
       - name: Checkout (full history for tag diff)
         uses: actions/checkout@v4
@@ -34,6 +36,13 @@ jobs:
           else
             echo "sdk/python changed between $prev and $current; building SDK."
             echo "sdk=true" >> "$GITHUB_OUTPUT"
+          fi
+          if git diff --quiet "$prev" "$current" -- sdk/typescript; then
+            echo "sdk/typescript unchanged; skipping TS publish."
+            echo "sdk_ts=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "sdk/typescript changed; will publish to npm."
+            echo "sdk_ts=true" >> "$GITHUB_OUTPUT"
           fi
 
   build-packer:
@@ -91,7 +100,7 @@ jobs:
           name: DGHubSDKPacker-${{ github.ref_name }}
           path: packer/installer/dghub-sdk-packer-setup.exe
 
-  build-sdk:
+  build-sdk-py:
     needs: detect-changes
     if: needs.detect-changes.outputs.sdk == 'true'
     runs-on: ubuntu-latest
@@ -123,10 +132,42 @@ jobs:
           name: dghub-sdk-${{ github.ref_name }}
           path: sdk/python/dist/*
 
+  build-sdk-ts:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.sdk_ts == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install deps
+        run: npm ci
+        working-directory: sdk/typescript
+
+      - name: Build
+        run: npm run build
+        working-directory: sdk/typescript
+
+      - name: Test
+        run: npm test
+        working-directory: sdk/typescript
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: dghub-sdk-ts-${{ github.ref_name }}
+          path: sdk/typescript/dist/*
+
   release:
-    needs: [detect-changes, build-packer, build-sdk]
-    # build-sdk 可能被合法跳过（SDK 无变更），仅要求其不失败
-    if: always() && needs.build-packer.result == 'success' && needs.build-sdk.result != 'failure' && needs.detect-changes.result == 'success'
+    needs: [detect-changes, build-packer, build-sdk-py, build-sdk-ts]
+    # build-sdk-py / build-sdk-ts 可能被合法跳过（SDK 无变更），仅要求其不失败
+    if: always() && needs.build-packer.result == 'success' && needs.build-sdk-py.result != 'failure' && needs.build-sdk-ts.result != 'failure' && needs.detect-changes.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
@@ -155,11 +196,19 @@ jobs:
         id: sdknote
         shell: bash
         run: |
+          NOTE=""
           if [ "${{ needs.detect-changes.outputs.sdk }}" = "true" ]; then
-            echo "note=本次发布包含 dghub-sdk 更新，请从 PyPI 安装：\`pip install -U dghub-sdk\`。" >> "$GITHUB_OUTPUT"
-          else
-            echo "note=本次发布不含 dghub-sdk 更新（自上一版本无变更）。SDK 一律通过 PyPI 分发：\`pip install dghub-sdk\`。" >> "$GITHUB_OUTPUT"
+            NOTE+="本次发布包含 dghub-sdk (Python) 更新，\`pip install -U dghub-sdk\`�?
+            NOTE+=$'\n'
           fi
+          if [ "${{ needs.detect-changes.outputs.sdk_ts }}" = "true" ]; then
+            NOTE+="本次发布包含 dghub-sdk (TypeScript) 更新，\`npm install dghub-sdk\`�?
+            NOTE+=$'\n'
+          fi
+          if [ -z "$NOTE" ]; then
+            NOTE="本次发布不含 dghub-sdk 更新（自上一版本无变更）。SDK 通过 PyPI / npm 分发�?
+          fi
+          echo "note=$NOTE" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -175,8 +224,8 @@ jobs:
           files: release-files/*
 
   publish-pypi:
-    needs: [detect-changes, build-sdk]
-    if: needs.detect-changes.outputs.sdk == 'true' && needs.build-sdk.result == 'success'
+    needs: [detect-changes, build-sdk-py]
+    if: needs.detect-changes.outputs.sdk == 'true' && needs.build-sdk-py.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
@@ -190,3 +239,36 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
+
+  publish-npm:
+    needs: [detect-changes, build-sdk-ts]
+    if: needs.detect-changes.outputs.sdk_ts == 'true' && needs.build-sdk-ts.result == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          registry-url: https://registry.npmjs.org
+
+      - name: Download TS SDK dist
+        uses: actions/download-artifact@v4
+        with:
+          name: dghub-sdk-ts-${{ github.ref_name }}
+          path: sdk/typescript/dist
+
+      - name: Set version from tag
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          npm version --no-git-tag-version "$VER"
+        working-directory: sdk/typescript
+
+      - name: Publish to npm
+        run: npm publish --provenance
+        working-directory: sdk/typescript
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
