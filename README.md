@@ -66,7 +66,7 @@ uv run --project packer python packer/build.py
 
 ## Demo
 
-`demo/tetris/` — 俄罗斯方块示例插件，演示 SDK 集成与强度触发。
+`demo/tetris-py/` — 俄罗斯方块示例插件（Python），演示 SDK 集成与强度触发。
 
 ## License
 
